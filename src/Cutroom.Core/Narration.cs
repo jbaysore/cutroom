@@ -38,6 +38,8 @@ public sealed class CleanupDecision
     public List<string> WordIds { get; set; } = [];
 
     [JsonIgnore] public bool IsCut => Kind is not (DecisionKind.AdLibKept or DecisionKind.PossibleSpeechKept);
+    /// <summary>Whether this decision removes audio: applied cuts, or "kept" regions the user toggled off.</summary>
+    [JsonIgnore] public bool Removes => IsCut ? Applied : !Applied;
     [JsonIgnore] public TimeRange TimeRange => new(Start, End);
 }
 
@@ -75,7 +77,7 @@ public sealed class Narration
     /// <summary>Source ranges that survive all applied cuts, in order.</summary>
     public List<TimeRange> KeptSpans()
     {
-        var cuts = Decisions.Where(d => d.IsCut && d.Applied).Select(d => d.TimeRange).OrderBy(r => r.Start).ToList();
+        var cuts = Decisions.Where(d => d.Removes).Select(d => d.TimeRange).OrderBy(r => r.Start).ToList();
         var spans = new List<TimeRange>();
         long cursor = 0;
         foreach (var cut in cuts)
@@ -90,8 +92,7 @@ public sealed class Narration
     /// <summary>Recompute <see cref="Word.Kept"/> from retake/false-start decisions.</summary>
     public void RefreshKeptWords()
     {
-        var removed = Decisions.Where(d => d.Applied && d.Kind is DecisionKind.Retake or DecisionKind.FalseStart)
-            .SelectMany(d => d.WordIds).ToHashSet();
+        var removed = Decisions.Where(d => d.Removes).SelectMany(d => d.WordIds).ToHashSet();
         foreach (var w in Words) w.Kept = !removed.Contains(w.Id);
     }
 }

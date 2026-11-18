@@ -7,12 +7,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.4" />
+    <ProjectReference Include="..\Cutroom.Core\Cutroom.Core.csproj" />
+    <ProjectReference Include="..\Cutroom.Audio\Cutroom.Audio.csproj" />
+    <ProjectReference Include="..\Cutroom.Library\Cutroom.Library.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Cutroom.Core\Cutroom.Core.csproj" />
-    <ProjectReference Include="..\Cutroom.Audio\Cutroom.Audio.csproj" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.32.0" />
   </ItemGroup>
 
 </Project>
