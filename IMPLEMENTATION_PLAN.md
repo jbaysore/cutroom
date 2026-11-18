@@ -72,7 +72,18 @@ Each spike lives in a scratch folder and produces a short findings note that bec
 - Minimal export through the same compositor, encoded by `h264_amf` at 1080p60. 30/24 fps sources are conformed by frame repetition, and 1440p sources are downscaled with a Lanczos shader.
 - **Exit:** cut a real 3-hour OBS recording into a 10-minute edit by keyboard only, export it, and the MP4 plays correctly with sound in sync.
 
-### Phase 2: Narration cleanup (success criteria 1–2)
+### Phase 2: Script, recorder and narration cleanup (success criteria 1–2)
+**Script import** (needed here, because cleanup matches against the script):
+- Paste text, or open a .docx (parsed with DocumentFormat.OpenXml) or a .txt file.
+- Paragraphs and Docs headings are preserved. Headings define sections, which drive section header cards, chapters and the "Intro" boundary (everything before the first heading).
+
+**Recorder** (`Cutroom.Audio.Recorder`):
+- WASAPI shared-mode capture from the chosen mic at 48 kHz, 24-bit, written to `ProjectFolder\narration\take-YYYYMMDD-HHMMSS.wav`.
+- The header is flushed every second, so a crash leaves a playable file.
+- The recorder view shows the script in a large, readable, manually scrolled panel, plus a level meter with a clip warning, elapsed time, and Record/Pause/Stop (`Ctrl+R`, `Space`).
+- Pressing `R` drops a `RetakeMark` at the current time. Each mark is a strong prior for step 6 below: the speech just before it is presumed to be an abandoned attempt of the next line said. Without marks, the pipeline works the same.
+- Importing an OBS/Streamlabs video file extracts its audio track automatically; the picture is never used.
+
 Pipeline (`CleanupEngine`), each stage cached by media fingerprint plus stage settings:
 1. **Decode** to 48 kHz mono float.
 2. **Denoise** with the engine chosen in spike 3. The output is a cached derivative, so the source file stays untouched.
@@ -97,6 +108,8 @@ Pipeline (`CleanupEngine`), each stage cached by media fingerprint plus stage se
 - All ad-lib sentences are kept.
 - Joshua reviews one real narration in under 10 minutes and the result sounds right to him.
 
+- The recorder captures a 30-minute session with no dropouts, and the `R` marks line up with the retakes.
+
 ### Phase 3: Subtitles (success criteria 3–5)
 - **Source text.** Uses the kept transcript words with their timings. Where the script match is confident, each word's spelling and capitalization comes from the script (e.g. "kiriko" becomes "Kiriko", "1v1" stays "1v1"). Joshua can also import an SRT, which skips auto-generation.
 - **Chunker.**
@@ -104,14 +117,17 @@ Pipeline (`CleanupEngine`), each stage cached by media fingerprint plus stage se
   - Hard limits: one line within a configurable maximum width (measured with the preset's font through DirectWrite, default about 42 characters), minimum 0.8 s on screen, and maximum 6 s.
   - Preferred breaks: sentence end, then clause punctuation, then before conjunctions/prepositions. It never breaks between a number and its unit, or inside a hero/ability name.
 - **Editing.** Inline text editing, split/merge with hotkeys, and nudging edges. Captions follow narration edits automatically because they are anchored to word IDs, not times.
-- **Regions.** `SubtitleRegion { start, end, presetId }`. Toolbar presets: Intro (from timeline start to the first script heading or a chosen marker), Whole video, and Custom (mark I/O, then press `Alt+S`).
+- **Regions.** `SubtitleRegion { start, end, presetId }`.
+  - **New projects get an Intro region automatically**, from timeline start to the first script heading (or a chosen marker).
+  - Toolbar presets: Intro, Whole video, and Custom (mark I/O, then press `Alt+S`).
+  - Captions are suppressed wherever a text card is visible, unless the region's "show over cards" flag is set.
 - **Presets.** Font, size, fill, outline width/color, shadow, position (safe-area anchored) and an in/out animation (none, fade or pop). Stored in the app's settings so every project shares them. Rendered by the native text layer, so preview and export match.
+  - The built-in default preset is a heavy sans-serif (Montserrat ExtraBold, bundled under the OFL licence), white fill, about 8 px black outline, soft 40% shadow, at 78% of frame height, centered.
 - **Export.** SRT for YouTube closed captions, covering the whole video regardless of the visual regions.
 - **Exit:** on the corpus, subtitle words match the hand transcript with at least 98% accuracy after script correction. Correcting one 12-minute video takes Joshua under 5 minutes.
 
 ### Phase 4: Script slots, footage library, asset library (success criterion 6)
-- **Script import.** Paste text, or open a .docx (parsed with DocumentFormat.OpenXml) or a .txt file. Paragraphs and headings are preserved, since headings help define the "Intro" region.
-- **Slots.** Generated from the script match: one per sentence by default, or merged per paragraph with a toggle. The slot panel lists text, duration and status. `Ctrl+Down` jumps to the next empty slot.
+- **Slots.** Generated from the script match: one per sentence by default, or merged per paragraph with a toggle. **In the intro section, slots split per phrase**: at clause punctuation, targeting 2–4 s each. The slot panel lists text, duration and status. `Ctrl+Down` jumps to the next empty slot.
 - **Source viewer.** A second viewer for library footage, with its own J/K/L and I/O.
 - **Fast fill.** `F` fills the current slot from the source in-point and trims to the slot length; `Shift+F` uses the source I/O range and ripples the slot to match. `Alt+Left`/`Alt+Right` slips the source by frames inside the slot.
 - **Library index (SQLite).**
@@ -123,31 +139,50 @@ Pipeline (`CleanupEngine`), each stage cached by media fingerprint plus stage se
 - Proxy generation for newly indexed footage runs at low priority in the background.
 - **Exit:** with 5 hours of indexed footage, Joshua fills every slot of a real 10-minute narration using only keyboard plus search, and finds any tagged moment in under 5 seconds.
 
-### Phase 5: Cards, overlays, transitions, animations (success criterion 7)
-- **Compositor effects (HLSL)**: separable Gaussian blur (radius parameter, rendered on a downsampled target for speed), dim, transform (position/scale/rotation/opacity with keyframes), crop, rounded mask, and drop shadow.
-- **Blurred-footage card.** `C` on a slot or a timeline range adds a blur+dim adjustment over the range plus a content layer (text, image or clip). The content source comes from the inspector or by dropping in from the library.
-- **Branded-background card.** `Shift+C` replaces the range with a looping background asset plus a content layer.
-- **Card templates** save blur strength, dim level, background asset, content layout, text preset and in/out animation. Joshua picks one from a palette with number keys.
-- **Transitions:** cross-dissolve, dip to black, and directional sweep/wipe (with feather). `Ctrl+T` (the Resolve default) adds the default transition at the nearest edit point.
-- **Animation presets:** pop-in, slide (4 directions), zoom/punch-in to a selected rectangle, and shake. Each is a keyframe generator applied to a layer's transform, so it stays editable afterwards.
-- **Facecam:** picture-in-picture with crop, rounded mask, and saved corner/size layouts.
-- **Exit:** recreate the cards from two recent published videos in under 1 minute each, and preview stays at 60 fps on a range with blur + card + subtitles.
+### Phase 5: Cards, branded templates, emphasis kit, transitions (success criteria 7–8)
+Guiding rule: every recipe must look good with zero adjustment. Defaults are tuned with Joshua on his own footage during this phase, then frozen as the built-in templates.
 
-### Phase 6: Audio mix (success criterion 8)
+- **Compositor effects (HLSL)**: separable Gaussian blur (radius parameter, rendered on a downsampled target for speed), dim, transform (position/scale/rotation/opacity with keyframes), crop, rounded mask, drop shadow, freeze-frame (holds a decoded frame), and vector shapes (ellipse, rectangle, arrow with stroke and draw-on animation, via Direct2D).
+- **Blurred-footage text card.** `C` on a slot or a timeline range adds a blur+dim adjustment over the range plus a text layer, with the text typed or pasted in the inspector. `Shift+Tab` swaps the content to an image or clip.
+  - **Auto-layout.** Text box at most 70% of frame width, line length 30–45 characters, font size stepped down from 64 px to 40 px until it fits within 60% of frame height, left-aligned for multi-line and centered for one line, generous line spacing. If it still won't fit, an "overflow: split into two cards" warning appears.
+  - **Line-by-line reveal (default).** Each card line is matched to the narration words (fuzzy token match against the kept transcript in the card's range), and appears at its matched word's start. Unmatched lines are spaced evenly. `Tab` toggles to all-at-once fade. Retiming: play the range and press `.` at each line's intended start; Cutroom rewrites the reveal times.
+- **Branded-background card.** `Shift+C` replaces the range with a looping background asset (default: the notebook page) plus a content layer, using the same auto-layout.
+- **Branded templates.**
+  - **Section header:** auto-placed at each script heading, on the branded background, showing the heading text.
+  - **Title card:** placed after the intro.
+  - **End screen:** the last 5–20 s, with safe zones matching YouTube's end-screen element grid.
+  - Each template is designed once with Joshua, and then needs only the text.
+- **Emphasis kit.**
+  - `Z` zoom-to-box: drag a rectangle, and it animates to fill the frame over 250 ms, holds, and returns.
+  - `Shift+O` freeze-frame + outline: freezes at the playhead, Joshua drags an ellipse, box or arrow (`1`/`2`/`3`), the shape draws on, holds until the next narration sentence boundary (adjustable), then resumes.
+  - `K` shake, and a quick white flash.
+  - Every effect is a keyframe generator, so it stays editable afterwards.
+- **Animation presets:** pop-in, slide (4 directions), zoom/punch-in. The preset is chosen from a single strip in the inspector.
+- **Transitions:** cross-dissolve, dip to black, and directional sweep/wipe (with feather). `Ctrl+T` (the Resolve default) adds the default transition at the nearest edit point. Clicking a transition shows a strip of alternatives, and one click swaps it.
+- **Auto-paired SFX.** Library assets tagged `whoosh` or `impact` are attached automatically: a whoosh to sweeps, an impact to zooms and freeze-frames, with a rotating pick to avoid repetition. These are toggled globally and per instance.
+- **Card templates** save blur strength, dim level, background asset, layout, text preset and reveal mode. Joshua picks one from a palette with number keys.
+- **Chapters.** Section header start times become a YouTube chapters text block (`0:00 Intro` first), copied to the clipboard and written next to the export.
+- **Facecam:** picture-in-picture with crop, rounded mask, and saved corner/size layouts.
+- **Exit:**
+  - Recreate the cards from two recent published videos in under 1 minute each.
+  - Joshua builds a 20-second intro with rapid cuts, two zooms and one freeze-frame outline in under 10 minutes.
+  - Preview stays at 60 fps on a range with blur + card + subtitles.
+
+### Phase 6: Audio mix (success criterion 9)
 - Tracks: A1 narration, A2 game audio (linked to its video clips by default, unlink with `Ctrl+L`), A3 music, A4 SFX.
 - **Auto-duck.** Driven by the kept narration word spans, which are already known exactly, so no detector is needed. Music and game audio drop by a default −12 dB (adjustable per track) with 150 ms attack and 400 ms release. Gaps shorter than 600 ms stay ducked to avoid pumping. Ducking is generated as volume keyframes, visible and editable, and regenerates when narration changes unless a keyframe was hand-edited.
 - Clip gain, fades (drag handles or `Alt+F`), and per-track volume and mute/solo.
 - **Final loudness.** Two-pass EBU R128 on the export mix to −14 LUFS integrated with a −1 dBTP true-peak limiter.
 - **Exit:** a real video's mix needs no manual volume work beyond optional music level tweaks.
 
-### Phase 7: Export polish and v1 acceptance (success criteria 9–10)
-- Export dialog: one YouTube preset (1080p60, H.264 High, AMF VBR at a 40 Mbps target, AAC 320 kbps, `+faststart`) plus a filename template. Optional SRT is written alongside.
+### Phase 7: Export polish and v1 acceptance (success criteria 10–11)
+- Export dialog: one YouTube preset (1080p60, H.264 High, AMF VBR at a 40 Mbps target, AAC 320 kbps, `+faststart`) plus a filename template. The SRT and the chapters text are written alongside.
 - Background export with progress, an ETA and a cancel button. Editing stays responsive during export. When done, Joshua can reveal the file in Explorer.
 - **Pre-flight checks:** missing media, empty slots, and subtitle regions without a preset.
 - **v1 acceptance:** Joshua edits a full real video in Cutroom without opening Resolve, then uploads it. Any friction found gets fixed before v1 is declared done.
 
 ## 5. Testing strategy
-- **Unit tests (`scripts/check.ps1`):** timeline commands and undo symmetry (property tests: random command sequences, then undo all, must return the original), the script matcher on synthetic retake/ad-lib cases, the subtitle chunker, ducking keyframe generation, and project JSON round-trips including old-version migration.
+- **Unit tests (`scripts/check.ps1`):** timeline commands and undo symmetry (property tests: random command sequences, then undo all, must return the original), the script matcher on synthetic retake/ad-lib/retake-mark cases, the subtitle chunker, card auto-layout and line-reveal matching, ducking keyframe generation, and project JSON round-trips including old-version migration.
 - **Engine tests:** render fixed timelines to frames and compare them against golden images with a perceptual tolerance. Export a 5 s test project and verify duration, fps, audio/video sync and loudness using ffprobe/ebur128.
 - **Corpus evaluation (`scripts/eval-cleanup.ps1`):** Joshua's labeled recordings. It reports removed-substantive-word count (must be 0), retake recall and subtitle accuracy. It is run before changing any threshold or model.
 - **UI smoke:** render key views at 100/150/200% DPI, using the same approach as Game Clipper.

@@ -3,12 +3,23 @@
 ## Purpose
 A fast, keyboard-first Windows video editor for one person (Joshua), who makes educational Overwatch YouTube videos and dislikes editing. It is not an all-in-one suite: it includes only what Joshua's workflow needs, plus as many time-saving automations as possible. It is a personal tool, not a multi-user product, and it replaces DaVinci Resolve for his videos.
 
+Joshua burned out on YouTube because of editing. Cleaning narration was tedious, and making visuals engaging meant learning unfamiliar tools in Resolve. Cutroom exists to make editing light enough that he keeps making videos.
+
+## Design principle
+**Joshua brings the idea; Cutroom makes it real fast and good-looking by default.**
+- Every common visual is a ready-made recipe: pick it, type or drop in the content, done. Getting a good result never requires design skill or learning the software.
+- Changing something (a transition, a card style, a subtitle look) takes one click or one key.
+- Cutroom does not invent creative ideas in v1. Any AI help is a later, separately scoped decision.
+
 ## Joshua's workflow (what Cutroom is built around)
-1. **Script.** Writes a full script in Google Docs.
-2. **Narration.** Records the script on its own, separate from gameplay. Follows the script about 95% of the time; occasionally rewords a line or adds a sentence. When he flubs a line he re-says it and keeps going, so retakes stay in the file.
+1. **Script.** Writes a full script in Google Docs. He will start marking sections with Docs headings so Cutroom can automate section headers and chapters.
+2. **Narration.** Records the script on its own, separate from gameplay. Today he uses Streamlabs OBS, which produces a video file whose picture he has to strip; Cutroom replaces this with a built-in recorder. He follows the script about 95% of the time, occasionally rewording a line or adding a sentence. When he flubs a line he re-says it and keeps going, so retakes stay in the file.
 3. **Clean the narration.** Today this is manual and slow.
 4. **Find and place footage.** This is the most time-consuming step. Once the narration is final, he finds gameplay that fits each point: cut-up OBS full matches, practice range clips recorded to demonstrate a point, and other people's gameplay (with permission). Then he splices the clips in against the commentary.
-5. **Make it engaging.** Subtitles, cards, transitions, cuts, music.
+5. **Make it engaging.**
+   - The intro (first 15–30 s) is a spoken hook/summary over rapid clips (a few seconds each), always subtitled, with as much attention-holding editing as he can manage: zooms, outlines, transitions.
+   - The rest of the video is mostly gameplay plus blurred-footage text cards explaining abilities and concepts, with section headers, music and transitions.
+   - Every video has a title card and an end screen.
 6. **Export** and upload.
 
 The narration is the spine of every video. Everything else is placed against it.
@@ -20,16 +31,17 @@ The narration is the spine of every video. Everything else is placed against it.
 - Machine: i5-13600K, 32 GB RAM, Radeon RX 6900 XT (16 GB), 2560×1440 display.
 
 ## Success criteria (v1 is done when)
-1. Joshua imports a narration recording plus its script, and Cutroom automatically removes dead space, mouth noises (breaths, swallows, clicks) and retakes, keeping the last good take of each line. It never removes substantive speech, including ad-libs that aren't in the script.
+1. Joshua records narration inside Cutroom (or imports a recording, including OBS video files) along with its script, and Cutroom automatically removes dead space, mouth noises (breaths, swallows, clicks) and retakes, keeping the last good take of each line. It never removes substantive speech, including ad-libs that aren't in the script.
 2. Every cleanup decision appears in a review list with low-confidence decisions first. Each can be auditioned and toggled with one key.
 3. Cutroom subtitles the video accurately on its own, using the script to spell names and Overwatch terms correctly.
 4. Joshua chooses where subtitles appear: only the intro, the whole video, or any chosen ranges.
 5. Subtitles have saved style presets.
 6. The narration splits into script slots that Joshua fills with footage from a searchable, tagged library. Clips auto-trim to fit their slot.
-7. A blurred-footage card and a branded-background card can each be made in one step.
-8. Narration always takes focus: music and game audio duck automatically under speech.
-9. A finished video exports as YouTube-ready 1080p60 MP4 with AMD hardware encoding.
-10. Joshua edits a real video end to end in Cutroom without opening Resolve.
+7. A blurred-footage text card (with line-by-line reveal synced to the narration), a branded-background card, and a freeze-frame outline can each be made in one step. They look good with default settings.
+8. Section headers, the title card and the end screen come from saved templates. Section headers and YouTube chapter timestamps are generated from the script's headings.
+9. Narration always takes focus: music and game audio duck automatically under speech.
+10. A finished video exports as YouTube-ready 1080p60 MP4 with AMD hardware encoding.
+11. Joshua edits a real video end to end in Cutroom without opening Resolve.
 
 ## Inputs
 - Narration recording (one long file per video)
@@ -39,6 +51,13 @@ The narration is the spine of every video. Everything else is placed against it.
 - Facecam (occasionally)
 
 ## Features
+### 0. Narration recorder
+- Records the mic straight to a clean WAV inside Cutroom, replacing the OBS-then-strip-video routine.
+- The uploaded script sits in a readable panel that Joshua scrolls himself. No auto-scrolling teleprompter.
+- An optional retake key (`R`) marks "I'm redoing this line". Cleanup treats the mark as strong evidence, but works the same without it.
+- Shows a level meter and a clipping warning, and saves continuously, so a crash never loses a take.
+- External recordings are still imported, including OBS video files; Cutroom takes the audio and ignores the picture.
+
 ### 1. Narration cleanup (top priority)
 - **Script-aware retake removal.** Matches what Joshua said against the script. When a line was said more than once, it keeps the last complete take and cuts the earlier attempts and false starts.
 - **Ad-libs are kept.** Speech that isn't in the script is kept and shown in the review list as "ad-lib kept".
@@ -52,12 +71,14 @@ The narration is the spine of every video. Everything else is placed against it.
 - Transcribed locally (no paid service or inference API), with the script used for spelling, especially hero names, abilities and maps. SRT import is also supported.
 - Educational style: one line maximum, usually about 3–8 words per caption, broken at natural phrase boundaries. No word-by-word TikTok highlighting.
 - Text is editable after generation.
-- Shown only on chosen time ranges: intro only, the whole video, or custom ranges.
-- Saved style presets: font, size, color, outline/shadow, position, and in/out animation.
+- Shown only on chosen time ranges: intro only, the whole video, or custom ranges. **The default is the intro only**, which is Joshua's normal use.
+- Saved style presets: font, size, color, outline/shadow, position, and in/out animation. The default preset is a bold white sans-serif with a thick black outline and soft shadow, placed lower-middle.
+- Subtitles hide automatically while a text card is on screen. Joshua can override this per region.
 - SRT export for YouTube closed captions.
 
 ### 3. Footage matching (the biggest time sink)
 - **Script slots.** The cleaned narration is split into slots, one per script sentence or paragraph. A slot panel shows the script text, each slot's status (empty, footage, or card), and its duration. Joshua jumps between empty slots by hotkey.
+- **Intro mode.** In the intro, slots split per phrase (about 2–4 s) instead of per sentence, so rapid cuts are just "next slot, fill, next slot, fill".
 - **Fast fill.** Joshua marks a moment in the source viewer and presses one key. The clip drops into the current slot and trims to fit. He can then nudge the source in-point or adjust the slot length.
 - **Footage library.** Indexes the footage folders. Proxies are generated in the background so even a 3-hour recording scrubs instantly. Joshua tags moments by hotkey while scrubbing (hero, map, topic, free notes) and finds them later with fast search.
 - Joshua always chooses the footage. Cutroom does not auto-place or auto-recommend clips in v1.
@@ -68,11 +89,19 @@ The narration is the spine of every video. Everything else is placed against it.
 - Hover previews: audio waveform with playback, image and video thumbnails.
 
 ### 5. Cards, overlays and effects
-- **Blurred-footage card (most-used visual).** Blurs and dims the footage underneath, then puts text, an image, or another clip on top. One step.
+- **Blurred-footage text card (most-used visual).** Blurs and dims the footage underneath, then puts text on top. The text is usually a short or long explanation of a hero ability or concept, less often a short phrase, and occasionally an image or clip instead. One step.
+  - **Automatic text layout.** Wrapping, size and line length are chosen automatically, so a full paragraph looks clean without manual placement.
+  - **Reveal.** The default is line by line, each line appearing as Joshua says it. Cutroom matches each line to the narration automatically, and Joshua can retime by tapping a key during playback. All-at-once fade is one click away.
 - **Branded-background card.** Cuts to a looping animated background (e.g. the crinkled notebook page) with text, an image, or a clip on top. One step.
-- Card templates are saved and reused.
-- Transitions: fades and sweeps.
-- Occasional animation presets on any layer: pop-in, slide, zoom/punch-in, shake.
+- **Branded templates.** A title card, an end screen (laid out for YouTube end-screen elements), and section headers. Section headers are placed automatically at each heading in the script.
+- **Emphasis kit (no editing skill needed).**
+  - Zoom-to-box: drag a rectangle and Cutroom animates in and out.
+  - Freeze-frame + outline: one key freezes the frame, Joshua drags a circle, box or arrow, it holds while he talks about it, then resumes.
+  - Shake and flash.
+  - Animation presets on any layer: pop-in, slide, zoom/punch-in.
+- **Transitions.** Fades and sweeps. Changing one is one click, and the default is applied with one key.
+- **Auto-paired SFX.** Transitions and zooms can automatically bring a whoosh or impact sound from Joshua's library. Each pairing is a toggle.
+- Card templates are saved and reused. Every recipe looks good with its default settings.
 - Facecam (occasional): basic picture-in-picture with saved position, size and crop.
 
 ### 6. Audio mix
@@ -89,6 +118,7 @@ The narration is the spine of every video. Everything else is placed against it.
 ### 8. Export
 - YouTube 1080p60 H.264 MP4 using AMD hardware encoding (AMF).
 - 1440p sources are downscaled, so zooms get extra sharpness for free. 30 and 24 fps sources are conformed to 60 fps.
+- YouTube chapter timestamps are generated from the section headers as text to paste into the description.
 
 ## Platform and stack
 - Windows desktop, native. .NET 10/WPF UI with a native C++/Direct3D 11 engine and FFmpeg, following Game Clipper's proven stack. Confirmed in spikes before locking in (see IMPLEMENTATION_PLAN.md).
@@ -111,7 +141,9 @@ The narration is the spine of every video. Everything else is placed against it.
 ## Later (after v1)
 - **Overwatch HUD scanning.** Deterministic reads of the kill feed, hero, ultimate use and map, used to suggest footage for a slot, with the reason shown.
 - **Local visual search** (image-text model) to rank footage for fuzzy queries.
-- Template library for lower thirds, callouts and title cards.
+- Template library for lower thirds and callouts.
+- AI assistance, with its scope still to be defined. It must stay local and free, and support Joshua's ideas rather than replace them.
+- Motion tracking, so outlines can follow moving players. In v1, freeze-frame + outline covers this.
 
 ## Open questions (resolved by the Phase 0 spikes)
 - Which word-alignment approach gives cut boundaries precise enough never to clip a word?
