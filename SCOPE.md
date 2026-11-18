@@ -107,7 +107,7 @@ The narration is the spine of every video. Everything else is placed against it.
 
 ### 6. Audio mix
 - Three main sources: narration, background music and gameplay audio. Usually two are active at a time.
-- **Narration takes focus.** Music and gameplay audio duck automatically under speech. The ducking appears as editable volume keyframes.
+- **Narration takes focus.** Music and gameplay audio duck automatically under speech. The ducking is drawn on the clips' volume lines, and it is adjusted with simple per-track controls (how far, how fast) plus "don't duck here" ranges, not hand-edited keyframes.
 - SFX placement on the timeline.
 - Per-clip and per-track volume and fades. No advanced mixing.
 - The final mix is loudness-normalized for YouTube.
@@ -134,6 +134,20 @@ The narration is the spine of every video. Everything else is placed against it.
   - Drafts several title options, a description and tags from the script.
   - Learns Joshua's style from his past videos, and keeps his fixed parts (links, socials, sign-off) word for word.
   - Chapters come from the script headings, as before.
+
+## Interface and feel
+- **The opposite of Resolve's complexity.** Only what Joshua uses is on screen. There are no node graphs, no curve editors and no buried menus. Blur is a slider. Animation smoothness is a choice of Smooth, Snappy, Bouncy or Linear.
+- **Four stages** as tabs across the top, following his workflow: **Record → Clean → Edit → Export**. Each stage shows only what that step needs. Assembling and polishing share one Edit stage, because he polishes while he assembles. The script is loaded at the start of Record.
+- **Visual style: modern minimal dark** (mock B in `design/mocks/edit-stage.html`).
+  - Near-black background with rounded floating panels separated by gaps instead of borders.
+  - One blue-violet accent and bright, distinct clip colors per track type.
+  - Roomy spacing.
+- **Screens.** Designed for one 2560×1440 monitor and fully usable on his 1080p monitor. The preview can pop out to the other monitor.
+- **Edit stage layout:** script slots on the left, preview in the center, and Footage / Assets / Inspector tabs on the right, with the timeline below.
+- **Input.** Keyboard-first, but every action is also one click away for when his hand is on the mouse.
+- **Editing properties.** Card text, styles, blur and effect settings are all edited in the Inspector panel, not directly on the preview.
+- **Motion comes from presets only.** Each preset has a duration slider and an easing choice. There is no keyframe editor.
+- **Shortcuts.** A Settings page lists every shortcut, searchable and rebindable. Buttons show their shortcut on hover. There is no command palette and no always-on hint bar.
 
 ## Platform and stack
 - Windows desktop, native. .NET 10/WPF UI with a native C++/Direct3D 11 engine and FFmpeg, following Game Clipper's proven stack. Confirmed in spikes before locking in (see IMPLEMENTATION_PLAN.md).

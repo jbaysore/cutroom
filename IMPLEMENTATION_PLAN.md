@@ -5,7 +5,7 @@ This plan says how to build what [SCOPE.md](SCOPE.md) defines. Work proceeds pha
 ## 1. Architecture
 
 ```
-┌──────────────────────── Cutroom.App (.NET 10, WPF, dark Fluent theme) ───────────────────────┐
+┌────────────────────── Cutroom.App (.NET 10, WPF, modern minimal dark theme) ─────────────────┐
 │ Timeline · Slot panel · Review list · Source viewer · Libraries · Inspector · Keymap          │
 └──────────────┬───────────────────────────────┬───────────────────────────────┬───────────────┘
                │                               │                               │
@@ -74,11 +74,19 @@ Each spike lives in a scratch folder and produces a short findings note that bec
 5. **Owner input needed:** 3–5 real narration recordings with their scripts. They go into `tests/corpus/` (gitignored, never committed) and become the regression corpus for cleanup and subtitles.
 
 ### Phase 1: Foundation editor
-- Solution skeleton, bootstrap script, dark theme (reusing Game Clipper's window-scoped Fluent theme approach), and the check script.
+- Solution skeleton, bootstrap script and check script.
+- **Theme and shell.**
+  - A WPF resource dictionary implements the chosen mock B tokens from `design/mocks/edit-stage.html`: background `#0b0c0f`, panels `#14161b`/`#1b1e25`, text `#e8e9ee`, muted `#7d8291`, accent `#7c8cff`, 12 px panel radius, 8 px gaps, 13 px Segoe UI Variable, and track colors (footage `#4a7dff`, card `#a46cff`, subtitles `#f2c94c`, narration `#3ddc97`, game `#2cc5c5`, music `#6c8cff`, SFX `#ff7a59`).
+  - Theming is window-scoped, as in Game Clipper.
+- **Stage tabs** Record / Clean / Edit / Export (`Ctrl+1`..`Ctrl+4`). Each stage is its own view with its own panel layout, sharing one project and undo stack. Only Edit is built fully in this phase; the others are placeholders.
+- **Edit layout.** Slots on the left (resizable, collapsible), preview in the center, and Footage / Assets / Inspector tabs on the right, with the timeline below. Panel sizes persist.
+  - Minimum supported window is 1920×1080 at 100%, and 2560×1440 is the design target.
+  - The preview pops out to a second monitor (`Ctrl+Shift+P`).
+- **Inspector** is the single place for editing properties of the selection. It contains only sliders, toggles, dropdowns and preset strips: no node graphs, curve editors or nested dialogs. It shows only the controls relevant to the selection.
 - Media import with ffprobe metadata and background jobs for proxies (540p H.264 on AMF with a short GOP for scrubbing), waveforms (peak files), thumbnails, and the decoded audio cache. A job panel shows progress, and nothing blocks the UI.
 - Timeline UI: tracks, clips, zoom, snapping, playhead, waveform drawing, and virtualization so a 90-minute timeline stays smooth.
 - Playback: the native compositor with one video layer plus the C# audio mixer, A/V sync on the audio clock, and J/K/L shuttle.
-- Editing commands with Resolve-default hotkeys: `I`/`O` mark, `Ctrl+B`/`B` blade, `Shift+Delete` ripple delete, `Up`/`Down` previous/next edit, `Left`/`Right` frame step, `Shift+Left`/`Shift+Right` 1-second step, `Ctrl+Z`/`Ctrl+Shift+Z`, `Space` play. The keymap is a JSON file with an in-app editor.
+- Editing commands with Resolve-default hotkeys: `I`/`O` mark, `Ctrl+B`/`B` blade, `Shift+Delete` ripple delete, `Up`/`Down` previous/next edit, `Left`/`Right` frame step, `Shift+Left`/`Shift+Right` 1-second step, `Ctrl+Z`/`Ctrl+Shift+Z`, `Space` play. The keymap is a JSON file, edited on a **Settings → Shortcuts** page: a searchable list grouped by stage, with click-to-rebind and conflict warnings. Every toolbar button also shows its shortcut in its tooltip.
 - Minimal export through the same compositor, encoded by `h264_amf` at 1080p60. 30/24 fps sources are conformed by frame repetition, and 1440p sources are downscaled with a Lanczos shader.
 - **Exit:** cut a real 3-hour OBS recording into a 10-minute edit by keyboard only, export it, and the MP4 plays correctly with sound in sync.
 
@@ -156,7 +164,7 @@ Pipeline (`CleanupEngine`), each stage cached by media fingerprint plus stage se
 ### Phase 5: Cards, branded templates, emphasis kit, transitions (success criteria 7–8)
 Guiding rule: every recipe must look good with zero adjustment. Defaults are tuned with Joshua on his own footage during this phase, then frozen as the built-in templates.
 
-- **Compositor effects (HLSL)**: separable Gaussian blur (radius parameter, rendered on a downsampled target for speed), dim, transform (position/scale/rotation/opacity with keyframes), crop, rounded mask, drop shadow, freeze-frame (holds a decoded frame), and vector shapes (ellipse, rectangle, arrow with stroke and draw-on animation, via Direct2D).
+- **Compositor effects (HLSL)**: separable Gaussian blur (radius parameter, rendered on a downsampled target for speed), dim, transform (position/scale/rotation/opacity, driven by internal keyframes), crop, rounded mask, drop shadow, freeze-frame (holds a decoded frame), and vector shapes (ellipse, rectangle, arrow with stroke and draw-on animation, via Direct2D).
 - **Blurred-footage text card.** `C` on a slot or a timeline range adds a blur+dim adjustment over the range plus a text layer, with the text typed or pasted in the inspector. `Shift+Tab` swaps the content to an image or clip.
   - **Auto-layout.** Text box at most 70% of frame width, line length 30–45 characters, font size stepped down from 64 px to 40 px until it fits within 60% of frame height, left-aligned for multi-line and centered for one line, generous line spacing. If it still won't fit, an "overflow: split into two cards" warning appears.
   - **Line-by-line reveal (default).** Each card line is matched to the narration words (fuzzy token match against the kept transcript in the card's range), and appears at its matched word's start. Unmatched lines are spaced evenly. `Tab` toggles to all-at-once fade. Retiming: play the range and press `.` at each line's intended start; Cutroom rewrites the reveal times.
@@ -170,7 +178,7 @@ Guiding rule: every recipe must look good with zero adjustment. Defaults are tun
   - `Z` zoom-to-box: drag a rectangle, and it animates to fill the frame over 250 ms, holds, and returns.
   - `Shift+O` freeze-frame + outline: freezes at the playhead, Joshua drags an ellipse, box or arrow (`1`/`2`/`3`), the shape draws on, holds until the next narration sentence boundary (adjustable), then resumes.
   - `K` shake, and a quick white flash.
-  - Every effect is a keyframe generator, so it stays editable afterwards.
+  - Every effect is a preset with Inspector controls: duration slider, easing (Smooth / Snappy / Bouncy / Linear) and effect-specific values such as zoom amount. Keyframes exist only internally. **There is no keyframe or curve editor in the UI.**
 - **Animation presets:** pop-in, slide (4 directions), zoom/punch-in. The preset is chosen from a single strip in the inspector.
 - **Transitions:** cross-dissolve, dip to black, and directional sweep/wipe (with feather). `Ctrl+T` (the Resolve default) adds the default transition at the nearest edit point. Clicking a transition shows a strip of alternatives, and one click swaps it.
 - **Auto-paired SFX.** Library assets tagged `whoosh` or `impact` are attached automatically: a whoosh to sweeps, an impact to zooms and freeze-frames, with a rotating pick to avoid repetition. These are toggled globally and per instance.
@@ -187,7 +195,7 @@ Guiding rule: every recipe must look good with zero adjustment. Defaults are tun
 
 ### Phase 6: Audio mix (success criterion 9)
 - Tracks: A1 narration, A2 game audio (linked to its video clips by default, unlink with `Ctrl+L`), A3 music, A4 SFX.
-- **Auto-duck.** Driven by the kept narration word spans, which are already known exactly, so no detector is needed. Music and game audio drop by a default −12 dB (adjustable per track) with 150 ms attack and 400 ms release. Gaps shorter than 600 ms stay ducked to avoid pumping. Ducking is generated as volume keyframes, visible and editable, and regenerates when narration changes unless a keyframe was hand-edited.
+- **Auto-duck.** Driven by the kept narration word spans, which are already known exactly, so no detector is needed. Music and game audio drop by a default −12 dB (adjustable per track) with 150 ms attack and 400 ms release. Gaps shorter than 600 ms stay ducked to avoid pumping. Ducking is drawn on each clip's volume line. It is adjusted with per-track depth/speed controls and "don't duck here" ranges, not hand-edited keyframes, and it regenerates whenever narration changes.
 - Clip gain, fades (drag handles or `Alt+F`), and per-track volume and mute/solo.
 - **Final loudness.** Two-pass EBU R128 on the export mix to −14 LUFS integrated with a −1 dBTP true-peak limiter.
 - **Exit:** a real video's mix needs no manual volume work beyond optional music level tweaks.

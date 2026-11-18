@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cutroom – Edit stage mock</title>
+<style>
+/* ---------- Theme tokens ---------- */
+body.resolve {
+  --bg: #1b1b1d; --panel: #262629; --panel2: #2e2e32; --line: #0f0f10; --text: #d6d6d6; --muted: #8a8a90;
+  --accent: #e8813a; --accent-soft: #e8813a33; --playhead: #e03b3b;
+  --radius: 2px; --gap: 1px; --pad: 8px; --font: 12px; --tab-radius: 0;
+  --footage: #3d6f99; --card: #7b5aa6; --sub: #b49a3a; --narr: #3f8f5c; --game: #3a7c80; --music: #5a6fa8; --sfx: #a0553f;
+  --clip-radius: 2px; --clip-border: 1px solid #0008;
+}
+body.modern {
+  --bg: #0b0c0f; --panel: #14161b; --panel2: #1b1e25; --line: transparent; --text: #e8e9ee; --muted: #7d8291;
+  --accent: #7c8cff; --accent-soft: #7c8cff26; --playhead: #ffffff;
+  --radius: 12px; --gap: 8px; --pad: 14px; --font: 13px; --tab-radius: 999px;
+  --footage: #4a7dff; --card: #a46cff; --sub: #f2c94c; --narr: #3ddc97; --game: #2cc5c5; --music: #6c8cff; --sfx: #ff7a59;
+  --clip-radius: 7px; --clip-border: none;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--text); font: var(--font)/1.35 "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  display: grid; grid-template-rows: auto 1fr; overflow: hidden;
+}
+
+/* ---------- Mock switcher (not part of the app) ---------- */
+.switcher { display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: #000; color: #aaa; font: 13px system-ui; }
+.switcher button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid #444; background: #1a1a1a; color: #ddd; cursor: pointer; }
+.switcher button.on { background: #fff; color: #000; border-color: #fff; }
+.switcher .hint { margin-left: auto; color: #777; }
+
+/* ---------- App ---------- */
+.app { display: grid; grid-template-rows: auto 1fr 38%; gap: var(--gap); padding: var(--gap); min-height: 0; background: var(--line); }
+body.modern .app { background: var(--bg); padding: 10px; }
+
+.topbar { display: flex; align-items: center; gap: 16px; padding: 6px var(--pad); background: var(--panel); border-radius: var(--radius); }
+.logo { font-weight: 700; letter-spacing: .5px; }
+.logo span { color: var(--accent); }
+.project { color: var(--muted); }
+.stages { display: flex; gap: 4px; margin: 0 auto; }
+.stage { padding: 6px 18px; border-radius: var(--tab-radius); color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.stage .n { font-size: 10px; opacity: .7; }
+.stage .done { color: var(--narr); }
+.stage.on { background: var(--accent-soft); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+body.modern .stage.on { box-shadow: none; background: var(--accent); color: #0b0c0f; font-weight: 600; }
+.status { display: flex; gap: 14px; color: var(--muted); }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--narr); margin-right: 5px; }
+
+.middle { display: grid; grid-template-columns: 22% 1fr 24%; gap: var(--gap); min-height: 0; }
+.panel { background: var(--panel); border-radius: var(--radius); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.ph { display: flex; align-items: center; gap: 8px; padding: 8px var(--pad); border-bottom: 1px solid var(--line); font-weight: 600; }
+body.modern .ph { border-bottom: none; padding-top: 12px; }
+.ph .sp { margin-left: auto; color: var(--muted); font-weight: 400; font-size: .9em; }
+.scroll { overflow: auto; flex: 1; padding: 4px; }
+
+/* Slots */
+.section { color: var(--muted); font-size: .8em; text-transform: uppercase; letter-spacing: .08em; padding: 10px 8px 4px; }
+.slot { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: start; padding: 7px 8px; border-radius: var(--radius); }
+.slot + .slot { border-top: 1px solid #0003; }
+body.modern .slot + .slot { border-top: none; }
+.slot .st { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; border: 1.5px solid var(--muted); }
+.slot.f .st { background: var(--footage); border-color: var(--footage); }
+.slot.c .st { background: var(--card); border-color: var(--card); }
+.slot.cur { background: var(--accent-soft); outline: 1px solid var(--accent); }
+body.modern .slot.cur { outline: none; }
+.slot .t { color: var(--text); }
+.slot.e .t { color: var(--muted); }
+.slot .d { color: var(--muted); font-variant-numeric: tabular-nums; font-size: .9em; }
+.chip { display: inline-block; margin-top: 4px; font-size: .85em; padding: 1px 8px; border-radius: 999px; border: 1px dashed var(--muted); color: var(--muted); }
+
+/* Preview */
+.preview { display: flex; flex-direction: column; }
+.viewer { flex: 1; display: grid; place-items: center; min-height: 0; padding: 10px; }
+.frame { position: relative; aspect-ratio: 16/9; height: 100%; max-width: 100%; border-radius: calc(var(--radius) / 2); overflow: hidden;
+  background: radial-gradient(circle at 30% 60%, #c9783c, transparent 40%), radial-gradient(circle at 75% 35%, #3b8fd6, transparent 45%),
+              linear-gradient(160deg, #3c4a5e, #20262f 60%, #5d4a36); }
+.frame::before { content: ""; position: absolute; inset: 0; backdrop-filter: blur(14px) brightness(.55); }
+.hud { position: absolute; left: 3%; bottom: 5%; width: 18%; height: 6%; background: #fff3; border-radius: 3px; filter: blur(4px); }
+.card { position: absolute; inset: 22% 18%; display: flex; flex-direction: column; justify-content: center; gap: 2.2%; }
+.card .h { font: 800 2.1vw/1.1 "Segoe UI", sans-serif; color: #fff; }
+.card .l { font: 600 1.25vw/1.35 "Segoe UI", sans-serif; color: #fff; }
+.card .l.dim { opacity: .25; }
+.transport { display: flex; align-items: center; gap: 14px; padding: 8px var(--pad); border-top: 1px solid var(--line); }
+body.modern .transport { border-top: none; justify-content: center; }
+.tc { font-variant-numeric: tabular-nums; font-family: Consolas, monospace; }
+.btns { display: flex; gap: 6px; }
+.btn { width: 28px; height: 24px; display: grid; place-items: center; border-radius: var(--radius); background: var(--panel2); color: var(--text); font-size: 11px; }
+body.modern .btn { border-radius: 999px; width: 32px; height: 32px; }
+.btn.play { background: var(--accent); color: #000; }
+.muted { color: var(--muted); }
+
+/* Library / inspector */
+.tabs { display: flex; gap: 2px; padding: 6px var(--pad) 0; }
+.tab { padding: 5px 10px; color: var(--muted); border-radius: var(--radius) var(--radius) 0 0; }
+.tab.on { color: var(--text); background: var(--panel2); }
+body.modern .tab { border-radius: 999px; }
+body.modern .tab.on { background: var(--panel2); }
+.search { margin: 8px var(--pad); padding: 7px 10px; background: var(--bg); border-radius: var(--radius); color: var(--text); border: 1px solid var(--line); }
+body.modern .search { background: var(--panel2); border: none; }
+.search .q { color: var(--accent); }
+.filters { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 var(--pad) 6px; }
+.f { padding: 2px 9px; border-radius: 999px; background: var(--panel2); color: var(--muted); font-size: .9em; }
+.f.on { background: var(--accent-soft); color: var(--text); }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 4px var(--pad); }
+.thumb { border-radius: calc(var(--radius) * .6); overflow: hidden; background: var(--panel2); }
+.thumb .img { aspect-ratio: 16/9; position: relative; }
+.thumb .img .dur { position: absolute; right: 4px; bottom: 3px; font-size: 10px; background: #000a; padding: 0 4px; border-radius: 3px; }
+.thumb .cap { padding: 4px 6px; font-size: .9em; }
+.thumb .tags { color: var(--muted); font-size: .8em; padding: 0 6px 5px; }
+.thumb.sel { outline: 2px solid var(--accent); }
+
+/* Timeline */
+.timeline { display: grid; grid-template-columns: 110px 1fr; grid-template-rows: 26px repeat(7, 1fr); gap: 0; background: var(--panel); border-radius: var(--radius); overflow: hidden; position: relative; }
+.tl-corner { border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 var(--pad); color: var(--muted); font-size: .9em; }
+.ruler { position: relative; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 10px; font-family: Consolas, monospace; }
+body.modern .ruler, body.modern .tl-corner { border-bottom: 1px solid #ffffff0d; }
+.ruler span { position: absolute; top: 6px; }
+.marker { position: absolute; top: 0; height: 26px; padding: 4px 6px 0; font-size: 10px; font-family: "Segoe UI"; color: #000; background: var(--sub); border-radius: 0 0 4px 4px; }
+.th { display: flex; align-items: center; gap: 8px; padding: 0 var(--pad); border-bottom: 1px solid #0004; background: var(--panel2); font-size: .9em; }
+body.modern .th { background: transparent; border-bottom: 1px solid #ffffff08; }
+.th b { width: 22px; color: var(--muted); font-weight: 600; }
+.lane { position: relative; border-bottom: 1px solid #0004; }
+body.modern .lane { border-bottom: 1px solid #ffffff08; }
+.clip { position: absolute; top: 3px; bottom: 3px; border-radius: var(--clip-radius); border: var(--clip-border); padding: 2px 6px; overflow: hidden; white-space: nowrap; font-size: 10.5px; color: #fff; text-shadow: 0 1px 2px #000; }
+body.modern .clip { top: 4px; bottom: 4px; }
+.clip svg { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .55; }
+.clip.sel { outline: 2px solid var(--accent); outline-offset: -1px; }
+body.resolve .clip.sel { outline-color: #fff; }
+.region { position: absolute; top: 3px; bottom: 3px; border-radius: var(--clip-radius); background: repeating-linear-gradient(45deg, #ffffff10 0 6px, transparent 6px 12px); border: 1px dashed var(--sub); color: var(--sub); font-size: 10.5px; padding: 2px 6px; }
+.playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--playhead); pointer-events: none; }
+.playhead::before { content: ""; position: absolute; top: 0; left: -6px; border: 7px solid transparent; border-top: 9px solid var(--playhead); }
+.keys { position: absolute; right: 10px; bottom: 6px; color: var(--muted); font-size: 10.5px; background: var(--panel); padding: 3px 8px; border-radius: var(--radius); }
+kbd { font: 10px Consolas, monospace; background: var(--panel2); padding: 1px 4px; border-radius: 3px; color: var(--text); }
+</style>
+</head>
+<body class="resolve">
+<div class="switcher">
+  <b style="color:#fff">Cutroom mock — Edit stage</b>
+  <button id="b-resolve" class="on" onclick="setTheme('resolve')">A · Resolve-like</button>
+  <button id="b-modern" onclick="setTheme('modern')">B · Modern minimal</button>
+  <span class="hint">Same layout, two styles. Press 1 / 2 to switch.</span>
+</div>
+
+<div class="app">
+  <div class="topbar">
+    <div class="logo">CUT<span>ROOM</span></div>
+    <div class="project">Ana Sleep Dart Guide · 11:42</div>
+    <div class="stages">
+      <div class="stage"><span class="n">1</span>Record <span class="done">✓</span></div>
+      <div class="stage"><span class="n">2</span>Clean <span class="done">✓</span></div>
+      <div class="stage on"><span class="n">3</span>Edit</div>
+      <div class="stage"><span class="n">4</span>Export</div>
+    </div>
+    <div class="status"><span><span class="dot"></span>Saved</span><span>AI · Claude</span><span>Proxies 100%</span></div>
+  </div>
+
+  <div class="middle">
+    <!-- Slots -->
+    <div class="panel">
+      <div class="ph">Script slots <span class="sp">27 / 41 filled</span></div>
+      <div class="scroll">
+        <div class="section">Intro</div>
+        <div class="slot f"><div class="st"></div><div class="t">Ana's sleep dart is the most</div><div class="d">2.4s</div></div>
+        <div class="slot f"><div class="st"></div><div class="t">game-changing cooldown in Overwatch,</div><div class="d">2.1s</div></div>
+        <div class="slot f"><div class="st"></div><div class="t">and most Anas waste it.</div><div class="d">1.8s</div></div>
+        <div class="section">Why sleep matters</div>
+        <div class="slot c cur"><div class="st"></div><div class="t">Sleep cancels almost every ultimate in the game, and it does it for just one cooldown.</div><div class="d">5.6s</div></div>
+        <div class="slot e"><div class="st"></div><div class="t">That means one dart can win the whole fight.<br><span class="chip">AI · clip: sleep cancels an enemy ult</span></div><div class="d">3.2s</div></div>
+        <div class="slot e"><div class="st"></div><div class="t">But only if you hold it for the right target.<br><span class="chip">AI · zoom on cooldown icon</span></div><div class="d">2.9s</div></div>
+        <div class="slot f"><div class="st"></div><div class="t">Let's look at three examples from my own games.</div><div class="d">3.0s</div></div>
+        <div class="section">Example 1</div>
+        <div class="slot e"><div class="st"></div><div class="t">Here the enemy Reinhardt is about to Earthshatter…</div><div class="d">4.1s</div></div>
+      </div>
+    </div>
+
+    <!-- Preview -->
+    <div class="panel preview">
+      <div class="ph">Timeline preview <span class="sp">Card · Blur 70% · Line reveal</span></div>
+      <div class="viewer">
+        <div class="frame">
+          <div class="hud"></div>
+          <div class="card">
+            <div class="h">Sleep cancels ultimates</div>
+            <div class="l">Graviton, Earthshatter, Dragonblade, Whole Hog…</div>
+            <div class="l">One cooldown can stop a team-fight-winning ult.</div>
+            <div class="l dim">Hold it until you see the ult start.</div>
+          </div>
+        </div>
+      </div>
+      <div class="transport">
+        <span class="tc">00:00:31:12</span>
+        <div class="btns"><div class="btn">⏮</div><div class="btn">◀</div><div class="btn play">▶</div><div class="btn">▶▶</div><div class="btn">⏭</div></div>
+        <span class="muted">Full · 60 fps</span>
+      </div>
+    </div>
+
+    <!-- Library -->
+    <div class="panel">
+      <div class="tabs"><div class="tab on">Footage</div><div class="tab">Assets</div><div class="tab">Inspector</div></div>
+      <div class="search"><span class="q">⌕</span> sleep ult cancel</div>
+      <div class="filters"><span class="f on">#ana</span><span class="f on">#sleep</span><span class="f">#ranked</span><span class="f">★ Favorites</span><span class="f">Recent</span></div>
+      <div class="scroll">
+        <div class="grid" id="lib"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Timeline -->
+  <div class="timeline" id="tl">
+    <div class="tl-corner">00:00:31:12</div><div class="ruler" id="ruler"></div>
+  </div>
+</div>
+
+<script>
+function setTheme(t) {
+  document.body.className = t;
+  document.getElementById('b-resolve').classList.toggle('on', t === 'resolve');
+  document.getElementById('b-modern').classList.toggle('on', t === 'modern');
+}
+addEventListener('keydown', e => { if (e.key === '1') setTheme('resolve'); if (e.key === '2') setTheme('modern'); });
+
+// Library thumbnails
+const libItems = [
+  ['Sleep on Rein shatter', '#ana #sleep #rein', '0:06', '#6a5134,#2d3c52'],
+  ['Grav cancelled — Junkertown', '#ana #sleep #zarya', '0:04', '#3a4f6b,#5b3d6e'],
+  ['Practice range: dart hitbox', '#practice #sleep', '0:12', '#41555c,#8b8f7a'],
+  ['Missed sleep, team wipes', '#ana #mistake', '0:09', '#5e3b33,#2b2f3d'],
+  ['Genji blade slept', '#ana #sleep #genji', '0:05', '#2f5d4c,#2a2f45'],
+  ['Hog hook → sleep', '#ana #sleep #hog', '0:07', '#6b5a3a,#30384a'],
+];
+document.getElementById('lib').innerHTML = libItems.map((x, i) => `
+  <div class="thumb ${i === 0 ? 'sel' : ''}"><div class="img" style="background:linear-gradient(135deg,${x[3]})"><span class="dur">${x[2]}</span></div>
+  <div class="cap">${x[0]}</div><div class="tags">${x[1]}</div></div>`).join('');
+
+// Timeline
+const tl = document.getElementById('tl');
+const ruler = document.getElementById('ruler');
+for (let s = 0; s <= 60; s += 5) ruler.insertAdjacentHTML('beforeend', `<span style="left:${s / 60 * 100}%">00:${String(s).padStart(2, '0')}</span>`);
+ruler.insertAdjacentHTML('beforeend', `<div class="marker" style="left:${21.5/60*100}%">§ Why sleep matters</div>`);
+
+function wave(seed, dense) {
+  let r = seed, pts = '';
+  for (let i = 0; i < 200; i++) { r = (r * 9301 + 49297) % 233280; const h = (r / 233280) * (dense ? 40 : 25) + (dense ? 5 : 2); pts += `<rect x="${i * 2}" y="${50 - h}" width="1.2" height="${h * 2}"/>`; }
+  return `<svg viewBox="0 0 400 100" preserveAspectRatio="none" fill="#fff">${pts}</svg>`;
+}
+const tracks = [
+  ['V2', 'Cards', [[27.5, 35, 'card', 'Blur card · "Sleep cancels ultimates"', 1]]],
+  ['V1', 'Footage', [[0, 2.4, 'footage', 'Rein shatter'], [2.4, 4.5, 'footage', 'Grav'], [4.5, 6.3, 'footage', 'Dart hitbox'], [6.3, 9, 'footage', 'Team wipe'], [9, 14, 'footage', 'Genji blade'], [14, 21.5, 'footage', 'Junkertown full match'], [21.5, 25, 'card', '§ Section header'], [25, 40, 'footage', 'Junkertown full match'], [43, 49, 'footage', 'Hog hook'], [52, 60, 'footage', 'Rein shatter']]],
+  ['S1', 'Subtitles', [['region', 0, 21.5, 'Subtitles · Intro · Bold White']]],
+  ['A1', 'Narration', [[0, 60, 'narr', 'Narration (cleaned · 214 cuts)', 0, true]]],
+  ['A2', 'Game', [[0, 21.5, 'game', ''], [25, 40, 'game', ''], [43, 49, 'game', ''], [52, 60, 'game', '']]],
+  ['A3', 'Music', [[0, 60, 'music', 'lofi_focus_03.mp3 · ducked']]],
+  ['A4', 'SFX', [[2.35, 3.2, 'sfx', 'whoosh'], [6.25, 7.1, 'sfx', 'whoosh'], [21.4, 22.6, 'sfx', 'impact']]],
+];
+const colors = { footage: 'var(--footage)', card: 'var(--card)', narr: 'var(--narr)', game: 'var(--game)', music: 'var(--music)', sfx: 'var(--sfx)' };
+tracks.forEach(([id, name, clips], ti) => {
+  tl.insertAdjacentHTML('beforeend', `<div class="th"><b>${id}</b>${name}</div>`);
+  const lane = document.createElement('div'); lane.className = 'lane';
+  clips.forEach(c => {
+    if (c[0] === 'region') { lane.insertAdjacentHTML('beforeend', `<div class="region" style="left:${c[1]/60*100}%;width:${(c[2]-c[1])/60*100}%">${c[3]}</div>`); return; }
+    const [a, b, k, label, sel, dense] = c;
+    const audio = ['narr', 'game', 'music'].includes(k);
+    lane.insertAdjacentHTML('beforeend', `<div class="clip ${sel ? 'sel' : ''}" style="left:${a/60*100}%;width:${(b-a)/60*100}%;background:${colors[k]}">${audio ? wave(ti * 7 + a * 13 + 1, dense) : ''}<span style="position:relative">${label}</span></div>`);
+  });
+  tl.appendChild(lane);
+});
+// playhead over the lanes column
+const ph = document.createElement('div'); ph.className = 'playhead';
+ph.style.left = `calc(110px + (100% - 110px) * ${31.2 / 60})`;
+tl.appendChild(ph);
+tl.insertAdjacentHTML('beforeend', `<div class="keys"><kbd>F</kbd> fill slot · <kbd>C</kbd> blur card · <kbd>Z</kbd> zoom · <kbd>Ctrl+G</kbd> AI text · <kbd>Ctrl+↓</kbd> next empty</div>`);
+</script>
+</body>
+</html>
