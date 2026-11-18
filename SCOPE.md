@@ -9,7 +9,7 @@ Joshua burned out on YouTube because of editing. Cleaning narration was tedious,
 **Joshua brings the idea; Cutroom makes it real fast and good-looking by default.**
 - Every common visual is a ready-made recipe: pick it, type or drop in the content, done. Getting a good result never requires design skill or learning the software.
 - Changing something (a transition, a card style, a subtitle look) takes one click or one key.
-- Cutroom does not invent creative ideas in v1. Any AI help is a later, separately scoped decision.
+- AI only proposes, and Joshua accepts, edits or ignores. It drafts text and suggests plans. It never places anything or changes the edit on its own.
 
 ## Joshua's workflow (what Cutroom is built around)
 1. **Script.** Writes a full script in Google Docs. He will start marking sections with Docs headings so Cutroom can automate section headers and chapters.
@@ -42,6 +42,7 @@ The narration is the spine of every video. Everything else is placed against it.
 9. Narration always takes focus: music and game audio duck automatically under speech.
 10. A finished video exports as YouTube-ready 1080p60 MP4 with AMD hardware encoding.
 11. Joshua edits a real video end to end in Cutroom without opening Resolve.
+12. AI drafts blur-card text (2–3 versions to pick from), suggests a visual plan for the script, and drafts YouTube packaging in his channel's style. It runs on his Claude or Codex subscription, never a paid API.
 
 ## Inputs
 - Narration recording (one long file per video)
@@ -120,6 +121,20 @@ The narration is the spine of every video. Everything else is placed against it.
 - 1440p sources are downscaled, so zooms get extra sharpness for free. 30 and 24 fps sources are conformed to 60 fps.
 - YouTube chapter timestamps are generated from the section headers as text to paste into the description.
 
+### 9. AI assistance (on Joshua's subscription)
+- **Engine.** Uses the Claude Code or Codex command-line tool Joshua is already signed into, the same way Harness does. He picks a preferred one in settings, and the other is the fallback.
+  - No API keys, and no per-use billing beyond his subscription's normal limits.
+  - If neither is available, the AI buttons grey out and everything else works.
+  - Only text is sent (script, transcript, past titles). Audio and video never leave the PC.
+- **Draft card text.** On a blur card or a selected range, AI drafts 2–3 versions of on-screen text from what Joshua says there: condensed explanation, key points as lines, and his exact words trimmed. He picks one with a key and edits freely.
+- **Visual plan from script.**
+  - On demand (before or after recording), AI reads the script and suggests a visual for each slot: gameplay clip (with a description of what to look for), text card (with draft text), background card, zoom, freeze-frame outline, or section header.
+  - Suggestions appear as chips in the slot panel. Applying one creates the card or fills the library search with the clip description. Ignoring costs nothing.
+- **YouTube packaging.**
+  - Drafts several title options, a description and tags from the script.
+  - Learns Joshua's style from his past videos, and keeps his fixed parts (links, socials, sign-off) word for word.
+  - Chapters come from the script headings, as before.
+
 ## Platform and stack
 - Windows desktop, native. .NET 10/WPF UI with a native C++/Direct3D 11 engine and FFmpeg, following Game Clipper's proven stack. Confirmed in spikes before locking in (see IMPLEMENTATION_PLAN.md).
 - Non-destructive: source media is never modified. Projects are JSON files that reference media.
@@ -136,13 +151,13 @@ The narration is the spine of every video. Everything else is placed against it.
 - Game Clipper integration (its clips are imported like any other file)
 - Resolve export or hand-off
 - Direct YouTube upload
-- Paid services or inference API keys
+- Paid services or inference API keys (AI runs only through Joshua's existing Claude/Codex subscriptions)
 
 ## Later (after v1)
 - **Overwatch HUD scanning.** Deterministic reads of the kill feed, hero, ultimate use and map, used to suggest footage for a slot, with the reason shown.
 - **Local visual search** (image-text model) to rank footage for fuzzy queries.
 - Template library for lower thirds and callouts.
-- AI assistance, with its scope still to be defined. It must stay local and free, and support Joshua's ideas rather than replace them.
+- Further AI helpers (footage search by description, auto-tagging, script feedback), considered only once v1's AI features prove useful.
 - Motion tracking, so outlines can follow moving players. In v1, freeze-frame + outline covers this.
 
 ## Open questions (resolved by the Phase 0 spikes)

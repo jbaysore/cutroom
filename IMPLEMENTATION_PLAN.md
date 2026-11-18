@@ -27,6 +27,14 @@ This plan says how to build what [SCOPE.md](SCOPE.md) defines. Work proceeds pha
 - **Dependencies are fetched by `scripts/bootstrap.ps1` into `.deps/`** (gitignored), following Game Clipper's pattern: FFmpeg pinned to a BtbN month-end LGPL shared build with a sha256 marker, whisper.cpp built with Vulkan, and ONNX Runtime with DirectML. Models download on first run to `%LOCALAPPDATA%\Cutroom\models` with pinned hashes.
 - **Storage.** Projects are `*.cutroom.json`. The app's index and caches live under `%LOCALAPPDATA%\Cutroom\`: `index.db` (SQLite), `cache\proxies`, `cache\audio`, `cache\waveforms`, `cache\thumbs` and `cache\speech`. Cache entries are keyed by a media fingerprint (path, size, mtime, and a hash of the first and last 1 MB).
 
+- **AI through subscription command-line tools (`Cutroom.AI`).**
+  - `IAiProvider` has two implementations: `ClaudeCodeProvider` runs `claude -p` in non-interactive print mode with JSON output, and `CodexProvider` runs `codex exec` non-interactively. Both are detected on PATH, and their sign-in status is probed at startup.
+  - Each request runs as a child process in an empty temp working directory with tools/file access disabled or read-only. The prompt goes over stdin, and the answer must be JSON matching a per-feature schema; invalid JSON is retried once with the validation error.
+  - **Subscription-only guard.** The child environment always has `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY` and related variables removed, so a request can never fall back to per-use API billing.
+  - Requests run in the background with a 120 s timeout and a cancel button. Results are cached by prompt hash.
+  - A usage-limit or sign-in error is shown plainly and never retried in a loop.
+  - Only text crosses the boundary: script, transcript excerpts, card ranges and channel profile.
+
 ## 2. Repository layout
 
 ```
@@ -34,7 +42,8 @@ src/Cutroom.App/        WPF shell, views, keymap, theme
 src/Cutroom.Core/       Project, Timeline, Track, Clip, Slot, SubtitleRegion, Card, Command (undo)
 src/Cutroom.Speech/     Transcriber, Aligner, ScriptMatcher, CleanupEngine, Vad, Denoise, Loudness
 src/Cutroom.Library/    IndexDb, FolderWatcher, ProxyQueue, Search, Tags
-src/Cutroom.Audio/      Mixer, Ducking, WasapiOutput, AudioCache
+src/Cutroom.Audio/      Mixer, Ducking, WasapiOutput, AudioCache, Recorder
+src/Cutroom.AI/         Provider detection, CLI runner, prompts, response schemas, ChannelProfile
 src/Cutroom.Engine/     P/Invoke wrappers over native/engine.dll
 native/engine/          C++20: decoder, frame cache, compositor, effects (HLSL), text, encoder
 tests/Cutroom.Core.Tests/, tests/Cutroom.Speech.Tests/, tests/Cutroom.Engine.Tests/
@@ -61,7 +70,8 @@ Each spike lives in a scratch folder and produces a short findings note that bec
 1. **Render/preview.** Host a D3D11 swapchain in WPF via `HwndHost`. Decode with FFmpeg + D3D11VA, composite 3 layers (footage + Gaussian blur + text) at 1080p60, and scrub a 3-hour OBS file through a proxy. Pass: steady 60 fps playback, and a scrub frame appears in under 100 ms.
 2. **Transcription + alignment.** Run whisper.cpp large-v3 on Vulkan over a real 15-minute narration. Measure speed and word error rate against a hand transcript. Compare word-boundary accuracy of whisper DTW timestamps against CTC forced alignment (wav2vec2 ONNX on DirectML). Pass: transcribes in under 3 minutes, and the chosen aligner's word boundaries fall within 30 ms of hand labels for 95% of words.
 3. **Denoise.** Run DeepFilterNet3 (ONNX) and FFmpeg `arnndn` on Joshua's mic recordings and let him pick by ear.
-4. **Owner input needed:** 3–5 real narration recordings with their scripts. They go into `tests/corpus/` (gitignored, never committed) and become the regression corpus for cleanup and subtitles.
+4. **AI command-line tools.** Confirm the exact non-interactive flags for current `claude` and `codex` releases: JSON output, disabling tools, and running with no repository. Confirm that sign-in and usage-limit errors are detectable, and that stripping API-key variables still works on subscription sign-in. Pass: a card-text request returns valid JSON in under 30 s through each provider.
+5. **Owner input needed:** 3–5 real narration recordings with their scripts. They go into `tests/corpus/` (gitignored, never committed) and become the regression corpus for cleanup and subtitles.
 
 ### Phase 1: Foundation editor
 - Solution skeleton, bootstrap script, dark theme (reusing Game Clipper's window-scoped Fluent theme approach), and the check script.
@@ -135,6 +145,10 @@ Pipeline (`CleanupEngine`), each stage cached by media fingerprint plus stage se
   - `moments` (media, in, out, note)
   - `tags`, `asset_tags`, `favorites`, `recent_uses`, and `fts5` virtual tables over filenames, notes and tags.
 - **Indexing and tagging.** Joshua adds "watched folders" (footage roots and asset roots). A `FileSystemWatcher` plus a startup rescan keep the index current, and files are never moved. While scrubbing he presses `T` to tag the current moment (quick picker with autocomplete over existing tags) and `Ctrl+M` to save I/O as a named moment.
+- **AI visual plan.**
+  - A "Plan visuals" button (also available right after script import, before recording) sends the script with its slot boundaries plus the list of Cutroom's visual recipes. It gets back `{ slotId, kind, clipDescription?, cardText?, reason }` per slot.
+  - Each suggestion appears as a muted chip on its slot. `Ctrl+Enter` applies it: a clip suggestion fills the library search box with `clipDescription`, and a card suggestion creates the card with the draft text. `Ctrl+Backspace` dismisses it.
+  - Suggestions never place footage.
 - **Search panel.** Search-as-you-type (FTS5 plus tag facets), type filters (footage, music, SFX, image, background), and Favorites and Recently-used tabs. Hovering shows a filmstrip or waveform preview with audio. Drag or press `Enter` to place.
 - Proxy generation for newly indexed footage runs at low priority in the background.
 - **Exit:** with 5 hours of indexed footage, Joshua fills every slot of a real 10-minute narration using only keyboard plus search, and finds any tagged moment in under 5 seconds.
@@ -160,6 +174,9 @@ Guiding rule: every recipe must look good with zero adjustment. Defaults are tun
 - **Animation presets:** pop-in, slide (4 directions), zoom/punch-in. The preset is chosen from a single strip in the inspector.
 - **Transitions:** cross-dissolve, dip to black, and directional sweep/wipe (with feather). `Ctrl+T` (the Resolve default) adds the default transition at the nearest edit point. Clicking a transition shows a strip of alternatives, and one click swaps it.
 - **Auto-paired SFX.** Library assets tagged `whoosh` or `impact` are attached automatically: a whoosh to sweeps, an impact to zooms and freeze-frames, with a rotating pick to avoid repetition. These are toggled globally and per instance.
+- **AI card text.**
+  - `Ctrl+G` on a text card (or a selected range) sends the kept transcript for that range plus the surrounding script paragraph. It gets back three drafts: condensed explanation (1–4 lines), key points (2–5 short lines), and exact words with filler trimmed.
+  - A popover shows them side by side. `1`/`2`/`3` picks one into the card, which stays fully editable. Hero, ability and map names are kept exactly as spelled in the script.
 - **Card templates** save blur strength, dim level, background asset, layout, text preset and reveal mode. Joshua picks one from a palette with number keys.
 - **Chapters.** Section header start times become a YouTube chapters text block (`0:00 Intro` first), copied to the clipboard and written next to the export.
 - **Facecam:** picture-in-picture with crop, rounded mask, and saved corner/size layouts.
@@ -178,11 +195,16 @@ Guiding rule: every recipe must look good with zero adjustment. Defaults are tun
 ### Phase 7: Export polish and v1 acceptance (success criteria 10–11)
 - Export dialog: one YouTube preset (1080p60, H.264 High, AMF VBR at a 40 Mbps target, AAC 320 kbps, `+faststart`) plus a filename template. The SRT and the chapters text are written alongside.
 - Background export with progress, an ETA and a cancel button. Editing stays responsive during export. When done, Joshua can reveal the file in Explorer.
+- **AI YouTube packaging** (a "Package" tab in the export dialog).
+  - **Channel profile setup (once).** Joshua pastes a few past titles and descriptions, or Cutroom reads his channel's public RSS feed (`youtube.com/feeds/videos.xml?channel_id=…`, which is free and needs no key) for recent titles and descriptions.
+  - AI extracts the style notes and the fixed blocks (links, socials, sign-off). The result is stored in `%LOCALAPPDATA%\Cutroom\channel-profile.json`, and Joshua can edit it.
+  - **Per video:** sends the script plus the profile and gets back 5 title options, a description and tags. Fixed blocks are inserted word for word by Cutroom, not by AI, and chapters are appended from the section headers.
+  - Each part has a copy button, and a `package.txt` is written next to the export.
 - **Pre-flight checks:** missing media, empty slots, and subtitle regions without a preset.
 - **v1 acceptance:** Joshua edits a full real video in Cutroom without opening Resolve, then uploads it. Any friction found gets fixed before v1 is declared done.
 
 ## 5. Testing strategy
-- **Unit tests (`scripts/check.ps1`):** timeline commands and undo symmetry (property tests: random command sequences, then undo all, must return the original), the script matcher on synthetic retake/ad-lib/retake-mark cases, the subtitle chunker, card auto-layout and line-reveal matching, ducking keyframe generation, and project JSON round-trips including old-version migration.
+- **Unit tests (`scripts/check.ps1`):** timeline commands and undo symmetry (property tests: random command sequences, then undo all, must return the original), the script matcher on synthetic retake/ad-lib/retake-mark cases, the subtitle chunker, card auto-layout and line-reveal matching, ducking keyframe generation, AI response schema validation and API-key variable stripping (with a fake provider), and project JSON round-trips including old-version migration.
 - **Engine tests:** render fixed timelines to frames and compare them against golden images with a perceptual tolerance. Export a 5 s test project and verify duration, fps, audio/video sync and loudness using ffprobe/ebur128.
 - **Corpus evaluation (`scripts/eval-cleanup.ps1`):** Joshua's labeled recordings. It reports removed-substantive-word count (must be 0), retake recall and subtitle accuracy. It is run before changing any threshold or model.
 - **UI smoke:** render key views at 100/150/200% DPI, using the same approach as Game Clipper.
@@ -200,5 +222,7 @@ Guiding rule: every recipe must look good with zero adjustment. Defaults are tun
 | Retake logic picks the wrong take | Keep-last-complete rule, low confidence when takes differ in wording, one-key toggle with audition |
 | Native compositor complexity | Spike first; keep the effect set small (blur, dim, transform, text, wipe) |
 | Huge source files | Proxies, a frame cache, and decoding only visible layers |
+| AI command-line flags or subscription terms change | Thin provider adapters, a spike-verified flag set, schema-validated output; AI features degrade to greyed out, never blocking editing |
+| AI drafts are bland or off-style | Always 2–3 options plus fully editable text; channel profile is editable; prompts tuned on Joshua's real scripts |
 | whisper.cpp/Vulkan driver issues on AMD | Fall back to a CPU build (13600K) at reduced speed; pin a known-good release |
 | Dependency URLs rot (as with Game Clipper's FFmpeg) | Pin month-end builds plus sha256, and reuse cached archives |
