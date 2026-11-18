@@ -35,6 +35,12 @@ This plan says how to build what [SCOPE.md](SCOPE.md) defines. Phases are a buil
   - A usage-limit or sign-in error is shown plainly and never retried in a loop.
   - Only text crosses the boundary: script, transcript excerpts, card ranges and channel profile.
 
+- **Implementation notes (as built).** These refine the decisions above:
+  - **Text and shapes.** Rasterized with WPF (`FormattedText`, geometry) into textures that the native compositor draws, instead of DirectWrite inside the engine. Preview and export still share the same pixels.
+  - **Video decode.** FFmpeg software decode with `sws_scale` to BGRA, plus a one-frame lookahead. Preview decodes proxies, and export decodes the originals.
+  - **Export.** Composed frames are read back from the GPU and piped to `ffmpeg.exe` (`h264_amf`, with `h264_mf` as the fallback). The mixed audio is muxed in the same `ffmpeg.exe` call.
+  - **Transcription.** The whisper.cpp prebuilt CPU binary with `ggml-large-v3-turbo` is the baseline. A Vulkan GPU build stays an optional upgrade.
+
 ## 2. Repository layout
 
 ```

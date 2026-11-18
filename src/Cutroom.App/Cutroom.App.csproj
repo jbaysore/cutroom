@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Cutroom.Core\Cutroom.Core.csproj" />
+    <ProjectReference Include="..\Cutroom.Speech\Cutroom.Speech.csproj" />
+    <ProjectReference Include="..\Cutroom.Library\Cutroom.Library.csproj" />
+    <ProjectReference Include="..\Cutroom.Audio\Cutroom.Audio.csproj" />
+    <ProjectReference Include="..\Cutroom.AI\Cutroom.AI.csproj" />
+    <ProjectReference Include="..\Cutroom.Engine\Cutroom.Engine.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+</Project>
