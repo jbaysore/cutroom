@@ -150,7 +150,7 @@ The narration is the spine of every video. Everything else is placed against it.
 - **Shortcuts.** A Settings page lists every shortcut, searchable and rebindable. Buttons show their shortcut on hover. There is no command palette and no always-on hint bar.
 
 ## Platform and stack
-- Windows desktop, native. .NET 10/WPF UI with a native C++/Direct3D 11 engine and FFmpeg, following Game Clipper's proven stack. Confirmed in spikes before locking in (see IMPLEMENTATION_PLAN.md).
+- Windows desktop, native. .NET 10/WPF UI with a native C++/Direct3D 11 engine and FFmpeg, following Game Clipper's proven stack.
 - Non-destructive: source media is never modified. Projects are JSON files that reference media.
 - Standalone: there is no Resolve hand-off phase.
 
@@ -174,7 +174,5 @@ The narration is the spine of every video. Everything else is placed against it.
 - Further AI helpers (footage search by description, auto-tagging, script feedback), considered only once v1's AI features prove useful.
 - Motion tracking, so outlines can follow moving players. In v1, freeze-frame + outline covers this.
 
-## Open questions (resolved by the Phase 0 spikes)
-- Which word-alignment approach gives cut boundaries precise enough never to clip a word?
-- Which local denoiser sounds best on Joshua's mic: DeepFilterNet or RNNoise?
-- Is a native D3D11 compositor hosted in WPF smooth enough for 1080p60 multi-layer preview with blur?
+## Build approach
+v1 is built straight through without stopping for Joshua's input. Technical choices that were open questions are fixed defaults, recorded in IMPLEMENTATION_PLAN.md. All testing with Joshua (his recordings, listening checks, tuning the look, and the end-to-end acceptance video) happens after the build.

@@ -1,6 +1,6 @@
 # Cutroom implementation plan
 
-This plan says how to build what [SCOPE.md](SCOPE.md) defines. Work proceeds phase by phase. Each phase ends with exit checks that must pass before the next one starts.
+This plan says how to build what [SCOPE.md](SCOPE.md) defines. Phases are a build order, not gates: the whole of v1 is built straight through without stopping for Joshua's input or approval. Automated tests the builder runs itself are part of building. Everything that needs Joshua (his recordings, his ears, his judgment of how things look and feel) happens once, after the build, in section 5.
 
 ## 1. Architecture
 
@@ -64,14 +64,12 @@ scripts/bootstrap.ps1, scripts/check.ps1
 
 ## 4. Phases
 
-### Phase 0: Spikes (de-risk before committing)
-Each spike lives in a scratch folder and produces a short findings note that becomes a decision in this plan.
-
-1. **Render/preview.** Host a D3D11 swapchain in WPF via `HwndHost`. Decode with FFmpeg + D3D11VA, composite 3 layers (footage + Gaussian blur + text) at 1080p60, and scrub a 3-hour OBS file through a proxy. Pass: steady 60 fps playback, and a scrub frame appears in under 100 ms.
-2. **Transcription + alignment.** Run whisper.cpp large-v3 on Vulkan over a real 15-minute narration. Measure speed and word error rate against a hand transcript. Compare word-boundary accuracy of whisper DTW timestamps against CTC forced alignment (wav2vec2 ONNX on DirectML). Pass: transcribes in under 3 minutes, and the chosen aligner's word boundaries fall within 30 ms of hand labels for 95% of words.
-3. **Denoise.** Run DeepFilterNet3 (ONNX) and FFmpeg `arnndn` on Joshua's mic recordings and let him pick by ear.
-4. **AI command-line tools.** Confirm the exact non-interactive flags for current `claude` and `codex` releases: JSON output, disabling tools, and running with no repository. Confirm that sign-in and usage-limit errors are detectable, and that stripping API-key variables still works on subscription sign-in. Pass: a card-text request returns valid JSON in under 30 s through each provider.
-5. **Owner input needed:** 3–5 real narration recordings with their scripts. They go into `tests/corpus/` (gitignored, never committed) and become the regression corpus for cleanup and subtitles.
+### Decisions made up front (no spikes)
+These were open questions. They are now fixed defaults, and anything that turns out wrong is adjusted during post-build testing.
+- **Preview:** a native D3D11 compositor hosted in WPF via `HwndHost`, with FFmpeg + D3D11VA decode.
+- **Word alignment:** CTC forced alignment (wav2vec2-family ONNX model on DirectML) refines whisper's words. Whisper's own DTW timestamps are the automatic fallback if the aligner fails on a file.
+- **Denoise:** DeepFilterNet3 (ONNX) by default. FFmpeg `arnndn` (RNNoise) is a Settings option and the automatic fallback.
+- **AI command-line flags:** the builder confirms the current non-interactive flags for `claude` and `codex` (JSON output, tools disabled, no repository, detectable sign-in/limit errors) while writing the providers. No input from Joshua is needed.
 
 ### Phase 1: Foundation editor
 - Solution skeleton, bootstrap script and check script.
@@ -88,7 +86,6 @@ Each spike lives in a scratch folder and produces a short findings note that bec
 - Playback: the native compositor with one video layer plus the C# audio mixer, A/V sync on the audio clock, and J/K/L shuttle.
 - Editing commands with Resolve-default hotkeys: `I`/`O` mark, `Ctrl+B`/`B` blade, `Shift+Delete` ripple delete, `Up`/`Down` previous/next edit, `Left`/`Right` frame step, `Shift+Left`/`Shift+Right` 1-second step, `Ctrl+Z`/`Ctrl+Shift+Z`, `Space` play. The keymap is a JSON file, edited on a **Settings → Shortcuts** page: a searchable list grouped by stage, with click-to-rebind and conflict warnings. Every toolbar button also shows its shortcut in its tooltip.
 - Minimal export through the same compositor, encoded by `h264_amf` at 1080p60. 30/24 fps sources are conformed by frame repetition, and 1440p sources are downscaled with a Lanczos shader.
-- **Exit:** cut a real 3-hour OBS recording into a 10-minute edit by keyboard only, export it, and the MP4 plays correctly with sound in sync.
 
 ### Phase 2: Script, recorder and narration cleanup (success criteria 1–2)
 **Script import** (needed here, because cleanup matches against the script):
@@ -104,9 +101,9 @@ Each spike lives in a scratch folder and produces a short findings note that bec
 
 Pipeline (`CleanupEngine`), each stage cached by media fingerprint plus stage settings:
 1. **Decode** to 48 kHz mono float.
-2. **Denoise** with the engine chosen in spike 3. The output is a cached derivative, so the source file stays untouched.
+2. **Denoise** with DeepFilterNet3 (or RNNoise if chosen in Settings). The output is a cached derivative, so the source file stays untouched.
 3. **Transcribe** with whisper.cpp large-v3. The initial prompt is seeded with a custom vocabulary drawn from the script (hero, ability and map names), so these get spelled right.
-4. **Align** words with the aligner chosen in spike 2, producing `Word { text, start, end, confidence }`.
+4. **Align** words with the CTC aligner (falling back to whisper DTW timestamps), producing `Word { text, start, end, confidence }`.
 5. **VAD** with Silero VAD (ONNX) to get a per-10 ms speech probability. This is the independent safety net.
 6. **Script match.** Normalize both texts (lowercase, strip punctuation, spell out numbers). Then run a word-level alignment (Smith–Waterman with affine gaps) from the transcript into the script. A *take* is a contiguous transcript run that maps onto the same script sentence. For each script sentence:
    - If one complete take exists, keep it.
@@ -119,14 +116,6 @@ Pipeline (`CleanupEngine`), each stage cached by media fingerprint plus stage se
 10. **Loudness.** Measure narration with EBU R128 and gain it to −16 LUFS pre-mix. The final mix target is set in Phase 6.
 
 **Confidence and review list.** Each decision gets a confidence built from aligner word confidence, script-match score and VAD agreement. The review list sorts ascending by confidence and shows the decision kind, transcript context and reason. Keys: `Enter` plays the before/after audition (2 s of context around the decision), `X` toggles the decision, `N`/`P` move to the next/previous decision, and `A` accepts all decisions remaining above the current one. Every toggle is a normal undoable command and updates the timeline immediately.
-
-**Exit (run on the corpus with `eval-cleanup.ps1`):**
-- Zero substantive words removed: every word in the hand transcript's final takes survives.
-- At least 95% of hand-labeled retakes are removed.
-- All ad-lib sentences are kept.
-- Joshua reviews one real narration in under 10 minutes and the result sounds right to him.
-
-- The recorder captures a 30-minute session with no dropouts, and the `R` marks line up with the retakes.
 
 ### Phase 3: Subtitles (success criteria 3–5)
 - **Source text.** Uses the kept transcript words with their timings. Where the script match is confident, each word's spelling and capitalization comes from the script (e.g. "kiriko" becomes "Kiriko", "1v1" stays "1v1"). Joshua can also import an SRT, which skips auto-generation.
@@ -142,7 +131,6 @@ Pipeline (`CleanupEngine`), each stage cached by media fingerprint plus stage se
 - **Presets.** Font, size, fill, outline width/color, shadow, position (safe-area anchored) and an in/out animation (none, fade or pop). Stored in the app's settings so every project shares them. Rendered by the native text layer, so preview and export match.
   - The built-in default preset is a heavy sans-serif (Montserrat ExtraBold, bundled under the OFL licence), white fill, about 8 px black outline, soft 40% shadow, at 78% of frame height, centered.
 - **Export.** SRT for YouTube closed captions, covering the whole video regardless of the visual regions.
-- **Exit:** on the corpus, subtitle words match the hand transcript with at least 98% accuracy after script correction. Correcting one 12-minute video takes Joshua under 5 minutes.
 
 ### Phase 4: Script slots, footage library, asset library (success criterion 6)
 - **Slots.** Generated from the script match: one per sentence by default, or merged per paragraph with a toggle. **In the intro section, slots split per phrase**: at clause punctuation, targeting 2–4 s each. The slot panel lists text, duration and status. `Ctrl+Down` jumps to the next empty slot.
@@ -159,10 +147,9 @@ Pipeline (`CleanupEngine`), each stage cached by media fingerprint plus stage se
   - Suggestions never place footage.
 - **Search panel.** Search-as-you-type (FTS5 plus tag facets), type filters (footage, music, SFX, image, background), and Favorites and Recently-used tabs. Hovering shows a filmstrip or waveform preview with audio. Drag or press `Enter` to place.
 - Proxy generation for newly indexed footage runs at low priority in the background.
-- **Exit:** with 5 hours of indexed footage, Joshua fills every slot of a real 10-minute narration using only keyboard plus search, and finds any tagged moment in under 5 seconds.
 
 ### Phase 5: Cards, branded templates, emphasis kit, transitions (success criteria 7–8)
-Guiding rule: every recipe must look good with zero adjustment. Defaults are tuned with Joshua on his own footage during this phase, then frozen as the built-in templates.
+Guiding rule: every recipe must look good with zero adjustment. The builder ships polished defaults based on the decisions in SCOPE.md, and Joshua fine-tunes them after the build.
 
 - **Compositor effects (HLSL)**: separable Gaussian blur (radius parameter, rendered on a downsampled target for speed), dim, transform (position/scale/rotation/opacity, driven by internal keyframes), crop, rounded mask, drop shadow, freeze-frame (holds a decoded frame), and vector shapes (ellipse, rectangle, arrow with stroke and draw-on animation, via Direct2D).
 - **Blurred-footage text card.** `C` on a slot or a timeline range adds a blur+dim adjustment over the range plus a text layer, with the text typed or pasted in the inspector. `Shift+Tab` swaps the content to an image or clip.
@@ -173,7 +160,7 @@ Guiding rule: every recipe must look good with zero adjustment. Defaults are tun
   - **Section header:** auto-placed at each script heading, on the branded background, showing the heading text.
   - **Title card:** placed after the intro.
   - **End screen:** the last 5–20 s, with safe zones matching YouTube's end-screen element grid.
-  - Each template is designed once with Joshua, and then needs only the text.
+  - Each ships with a clean default design and is restyled in the Inspector after the build. Each then needs only the text.
 - **Emphasis kit.**
   - `Z` zoom-to-box: drag a rectangle, and it animates to fill the frame over 250 ms, holds, and returns.
   - `Shift+O` freeze-frame + outline: freezes at the playhead, Joshua drags an ellipse, box or arrow (`1`/`2`/`3`), the shape draws on, holds until the next narration sentence boundary (adjustable), then resumes.
@@ -188,19 +175,14 @@ Guiding rule: every recipe must look good with zero adjustment. Defaults are tun
 - **Card templates** save blur strength, dim level, background asset, layout, text preset and reveal mode. Joshua picks one from a palette with number keys.
 - **Chapters.** Section header start times become a YouTube chapters text block (`0:00 Intro` first), copied to the clipboard and written next to the export.
 - **Facecam:** picture-in-picture with crop, rounded mask, and saved corner/size layouts.
-- **Exit:**
-  - Recreate the cards from two recent published videos in under 1 minute each.
-  - Joshua builds a 20-second intro with rapid cuts, two zooms and one freeze-frame outline in under 10 minutes.
-  - Preview stays at 60 fps on a range with blur + card + subtitles.
 
 ### Phase 6: Audio mix (success criterion 9)
 - Tracks: A1 narration, A2 game audio (linked to its video clips by default, unlink with `Ctrl+L`), A3 music, A4 SFX.
 - **Auto-duck.** Driven by the kept narration word spans, which are already known exactly, so no detector is needed. Music and game audio drop by a default −12 dB (adjustable per track) with 150 ms attack and 400 ms release. Gaps shorter than 600 ms stay ducked to avoid pumping. Ducking is drawn on each clip's volume line. It is adjusted with per-track depth/speed controls and "don't duck here" ranges, not hand-edited keyframes, and it regenerates whenever narration changes.
 - Clip gain, fades (drag handles or `Alt+F`), and per-track volume and mute/solo.
 - **Final loudness.** Two-pass EBU R128 on the export mix to −14 LUFS integrated with a −1 dBTP true-peak limiter.
-- **Exit:** a real video's mix needs no manual volume work beyond optional music level tweaks.
 
-### Phase 7: Export polish and v1 acceptance (success criteria 10–11)
+### Phase 7: Export polish (success criteria 10, 12)
 - Export dialog: one YouTube preset (1080p60, H.264 High, AMF VBR at a 40 Mbps target, AAC 320 kbps, `+faststart`) plus a filename template. The SRT and the chapters text are written alongside.
 - Background export with progress, an ETA and a cancel button. Editing stays responsive during export. When done, Joshua can reveal the file in Explorer.
 - **AI YouTube packaging** (a "Package" tab in the export dialog).
@@ -209,13 +191,32 @@ Guiding rule: every recipe must look good with zero adjustment. Defaults are tun
   - **Per video:** sends the script plus the profile and gets back 5 title options, a description and tags. Fixed blocks are inserted word for word by Cutroom, not by AI, and chapters are appended from the section headers.
   - Each part has a copy button, and a `package.txt` is written next to the export.
 - **Pre-flight checks:** missing media, empty slots, and subtitle regions without a preset.
-- **v1 acceptance:** Joshua edits a full real video in Cutroom without opening Resolve, then uploads it. Any friction found gets fixed before v1 is declared done.
 
-## 5. Testing strategy
-- **Unit tests (`scripts/check.ps1`):** timeline commands and undo symmetry (property tests: random command sequences, then undo all, must return the original), the script matcher on synthetic retake/ad-lib/retake-mark cases, the subtitle chunker, card auto-layout and line-reveal matching, ducking keyframe generation, AI response schema validation and API-key variable stripping (with a fake provider), and project JSON round-trips including old-version migration.
+## 5. Testing
+### During the build (automated, no Joshua involvement)
+- **Unit tests (`scripts/check.ps1`):**
+  - timeline commands and undo symmetry (property tests: random command sequences, then undo all, must return the original)
+  - the script matcher on synthetic retake/ad-lib/retake-mark cases
+  - the subtitle chunker, card auto-layout and line-reveal matching
+  - ducking generation
+  - AI response schema validation and API-key variable stripping (with a fake provider)
+  - project JSON round-trips including old-version migration
 - **Engine tests:** render fixed timelines to frames and compare them against golden images with a perceptual tolerance. Export a 5 s test project and verify duration, fps, audio/video sync and loudness using ffprobe/ebur128.
-- **Corpus evaluation (`scripts/eval-cleanup.ps1`):** Joshua's labeled recordings. It reports removed-substantive-word count (must be 0), retake recall and subtitle accuracy. It is run before changing any threshold or model.
 - **UI smoke:** render key views at 100/150/200% DPI, using the same approach as Game Clipper.
+- **Synthetic audio fixtures:** generated narration-like test audio with inserted silences, clicks and repeated phrases, so the cleanup pipeline is exercised without Joshua's recordings.
+
+### After the build (with Joshua)
+Done once v1 is fully built. Each issue found becomes a fix:
+1. **Real recordings.** Joshua provides 3–5 narrations with scripts, kept in `tests/corpus/` (gitignored, never committed). `scripts/eval-cleanup.ps1` measures removed substantive words (must be 0), retake recall (target 95%+), ad-libs kept, and subtitle accuracy (target 98%+). Thresholds, aligner and denoiser are tuned against these.
+2. **Listening checks.** Joshua judges cleanup pacing, the denoiser (DeepFilterNet vs RNNoise) and ducking by ear.
+3. **Look and feel.** Joshua tunes the subtitle preset, card templates, title card, end screen, section headers and animation timing on his own footage. The results become the built-in defaults.
+4. **Workflow timing checks:**
+   - reviewing a narration in under 10 minutes
+   - correcting subtitles for a 12-minute video in under 5 minutes
+   - filling a 10-minute narration's slots from 5 hours of footage
+   - building a 20-second intro in under 10 minutes
+   - mixing without manual volume work
+5. **v1 acceptance (success criterion 11):** Joshua edits a full real video in Cutroom without opening Resolve, then uploads it.
 
 ## 6. Performance budgets
 - Opening a 90-minute project takes under 2 s. Timeline interactions stay at 60 fps.
@@ -226,11 +227,11 @@ Guiding rule: every recipe must look good with zero adjustment. Defaults are tun
 ## 7. Risks and mitigations
 | Risk | Mitigation |
 |---|---|
-| Aligner boundaries clip word edges | 30 ms padding, VAD cross-check, corpus metric that must be 0, review list |
+| Aligner boundaries clip word edges | 30 ms padding, VAD cross-check, review list, post-build corpus metric that must be 0 |
 | Retake logic picks the wrong take | Keep-last-complete rule, low confidence when takes differ in wording, one-key toggle with audition |
-| Native compositor complexity | Spike first; keep the effect set small (blur, dim, transform, text, wipe) |
+| Native compositor complexity | Build the preview path first in Phase 1; keep the effect set small (blur, dim, transform, text, wipe) |
 | Huge source files | Proxies, a frame cache, and decoding only visible layers |
-| AI command-line flags or subscription terms change | Thin provider adapters, a spike-verified flag set, schema-validated output; AI features degrade to greyed out, never blocking editing |
-| AI drafts are bland or off-style | Always 2–3 options plus fully editable text; channel profile is editable; prompts tuned on Joshua's real scripts |
+| AI command-line flags or subscription terms change | Thin provider adapters, flags verified while building, schema-validated output; AI features degrade to greyed out, never blocking editing |
+| AI drafts are bland or off-style | Always 2–3 options plus fully editable text; channel profile is editable; prompts tuned on Joshua's real scripts after the build |
 | whisper.cpp/Vulkan driver issues on AMD | Fall back to a CPU build (13600K) at reduced speed; pin a known-good release |
 | Dependency URLs rot (as with Game Clipper's FFmpeg) | Pin month-end builds plus sha256, and reuse cached archives |
