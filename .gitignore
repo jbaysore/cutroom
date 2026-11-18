@@ -1,0 +1,18 @@
+node_modules/
+dist/
+build/
+out/
+target/
+__pycache__/
+.venv/
+*.log
+.env
+.DS_Store
+# media and render artifacts
+*.mp4
+*.mov
+*.mkv
+*.wav
+*.proxy.*
+.cache/
+renders/
