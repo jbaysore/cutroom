@@ -64,6 +64,8 @@ public static class Tools
         {
             string detail;
             lock (tail) detail = string.Join("\n", tail);
+            if (detail.Trim().Length == 0)
+                lock (stdout) detail = stdout.Length > 600 ? stdout.ToString(stdout.Length - 600, 600) : stdout.ToString();
             throw new ToolException($"{Path.GetFileName(exe)} failed (exit {p.ExitCode}): {detail}");
         }
         lock (stdout) return stdout.ToString();
