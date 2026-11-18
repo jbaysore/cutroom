@@ -2,6 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Cutroom.Core\Cutroom.Core.csproj" />
+    <ProjectReference Include="..\Cutroom.Audio\Cutroom.Audio.csproj" />
+    <ProjectReference Include="..\Cutroom.Library\Cutroom.Library.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
