@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Media;
 using Cutroom.Audio;
 using Cutroom.Core;
@@ -30,14 +31,22 @@ public sealed class CleanView : Grid, IDisposable
     };
     readonly Canvas markers = new() { Height = 22, ClipToBounds = true };
     readonly ContentControl settings = new();
-    readonly Button run, cancel, play, review, all, original, cut, toggle;
+    readonly Button run, cancel, play, review, all, original, cut, toggle, scriptButton;
     readonly FrameworkElement listen, reviewPane, decisionActions;
+    readonly Border scriptPane;
+    readonly ColumnDefinition scriptGapColumn, scriptColumn;
+    readonly FlowDocumentScrollViewer scriptReader = new()
+    {
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        IsToolBarVisible = false,
+    };
     CleanPreview? preview;
     List<CleanupDecision> visible = [];
     long position, playbackEnd;
     string? playbackPath;
     int renderedRevision = -1;
-    bool allDecisions, updatingSeek, dragging, resumeAfterDrag, playingTake;
+    bool allDecisions, scriptShown, updatingSeek, dragging, resumeAfterDrag, playingTake;
     (CleanPreview Preview, TimeRange Range)? nextAudition;
 
     public event Action? GoToEdit;
@@ -59,6 +68,7 @@ public sealed class CleanView : Grid, IDisposable
         original = Ui.Button("Hear original", () => Audition(false), tip: "Hear the selected region with this cut lifted");
         cut = Ui.Button("Hear cut", () => Audition(true), tip: "Hear the selected region with this cut applied");
         toggle = Ui.Button("Restore audio", Toggle, "clean.toggle", tip: "Toggle the selected decision");
+        scriptButton = Ui.Button("Show script", ToggleScript, tip: "Show or hide the loaded script while listening");
         decisionActions = Ui.Row(original, cut, toggle);
         var next = Ui.Button("Continue to Edit →", () => GoToEdit?.Invoke());
         var transport = Ui.Row(play, time);
@@ -81,15 +91,37 @@ public sealed class CleanView : Grid, IDisposable
         reviewPane = Ui.Card(reviewPanel);
         reviewPane.Margin = new Thickness(0, 8, 0, 0);
 
-        var main = new DockPanel();
-        var header = Ui.Stack(Ui.Row(run, cancel, next), progress, stage);
+        var layout = new Grid();
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        var header = Ui.Stack(Ui.Row(run, cancel, scriptButton, next), progress, stage);
         header.Margin = new Thickness(0, 0, 0, 8);
-        DockPanel.SetDock(header, Dock.Top);
+        layout.Children.Add(header);
+
+        var body = new Grid();
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        scriptGapColumn = new ColumnDefinition { Width = new GridLength(0) };
+        scriptColumn = new ColumnDefinition { Width = new GridLength(0) };
+        body.ColumnDefinitions.Add(scriptGapColumn);
+        body.ColumnDefinitions.Add(scriptColumn);
+        var main = new DockPanel();
         DockPanel.SetDock(listen, Dock.Top);
-        main.Children.Add(header);
         main.Children.Add(listen);
         main.Children.Add(reviewPane);
-        Children.Add(main);
+        body.Children.Add(main);
+
+        var scriptContent = new DockPanel();
+        var scriptHeader = Ui.Row(Ui.Header("Script"));
+        DockPanel.SetDock(scriptHeader, Dock.Top);
+        scriptContent.Children.Add(scriptHeader);
+        scriptContent.Children.Add(scriptReader);
+        scriptPane = Ui.Card(scriptContent);
+        scriptPane.Visibility = Visibility.Collapsed;
+        Grid.SetColumn(scriptPane, 2);
+        body.Children.Add(scriptPane);
+        Grid.SetRow(body, 1);
+        layout.Children.Add(body);
+        Children.Add(layout);
 
         var side = Ui.Card(Ui.Scroll(settings));
         SetColumn(side, 2);
@@ -207,6 +239,7 @@ public sealed class CleanView : Grid, IDisposable
         var n = s.P.Narration;
         if (s.Doc.Revision == renderedRevision) return;
         renderedRevision = s.Doc.Revision;
+        RefreshScript();
         long? sourcePosition = preview?.Map.ToSource(position);
         StopPlayback();
         run.Content = n.Processed ? "Run cleanup again" : "Clean narration";
@@ -227,6 +260,58 @@ public sealed class CleanView : Grid, IDisposable
         DrawMarkers();
         UpdatePosition();
         UpdateControls();
+    }
+
+    void ToggleScript()
+    {
+        scriptShown = !scriptShown;
+        scriptButton.Content = scriptShown ? "Hide script" : "Show script";
+        scriptButton.Background = scriptShown ? Theme.AccentSoft : Brushes.Transparent;
+        scriptGapColumn.Width = new GridLength(scriptShown ? 8 : 0);
+        scriptColumn.Width = new GridLength(scriptShown ? 320 : 0);
+        scriptPane.Visibility = scriptShown ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    void RefreshScript()
+    {
+        var doc = new FlowDocument
+        {
+            FontFamily = new FontFamily("Segoe UI"),
+            FontSize = 16,
+            Foreground = Theme.TextBrush,
+            Background = Theme.PanelBrush,
+            PagePadding = new Thickness(4),
+            LineHeight = 25,
+        };
+        var script = s.P.Script;
+        if (script is null || !script.Sentences.Any())
+        {
+            doc.Blocks.Add(new Paragraph(new Run("Load a script in Record to compare it while listening."))
+            {
+                Foreground = Theme.MutedBrush,
+                FontSize = 14,
+            });
+        }
+        else
+        {
+            foreach (var section in script.Sections)
+            {
+                if (section.Heading is not null)
+                    doc.Blocks.Add(new Paragraph(new Run(section.Heading))
+                    {
+                        FontWeight = FontWeights.Bold,
+                        FontSize = 17,
+                        Foreground = Theme.AccentBrush,
+                        Margin = new Thickness(0, 10, 0, 5),
+                    });
+                foreach (var para in section.Paragraphs)
+                    doc.Blocks.Add(new Paragraph(new Run(string.Join(" ", para.Sentences.Select(x => x.Text))))
+                    {
+                        Margin = new Thickness(0, 0, 0, 12),
+                    });
+            }
+        }
+        scriptReader.Document = doc;
     }
 
     static bool IsSpeechCut(CleanupDecision d) => d.Kind is DecisionKind.Retake or DecisionKind.FalseStart;
