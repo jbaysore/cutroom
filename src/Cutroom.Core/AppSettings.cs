@@ -14,6 +14,7 @@ public static class Commands
         new("stage.edit", "Go to Edit", "Stages", "Ctrl+3"),
         new("stage.export", "Go to Export", "Stages", "Ctrl+4"),
         new("file.save", "Save project", "General", "Ctrl+S"),
+        new("file.projects", "Open project menu", "General", "Ctrl+O"),
         new("edit.undo", "Undo", "General", "Ctrl+Z"),
         new("edit.redo", "Redo", "General", "Ctrl+Shift+Z"),
         new("play.toggle", "Play / pause", "Playback", "Space"),

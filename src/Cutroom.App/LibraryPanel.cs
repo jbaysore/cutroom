@@ -167,6 +167,7 @@ public sealed class LibraryPanel : DockPanel
     /// <summary>Footage opens in the source viewer; assets go straight onto the timeline at the playhead.</summary>
     async Task Activate(SearchHit hit)
     {
+        using var work = s.BeginProjectWork();
         s.Player.Stop();
         if (role == LibraryRole.Footage || hit.Item.Category == AssetCategory.Video)
         {

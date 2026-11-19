@@ -113,6 +113,39 @@ public sealed class Document
 
     public static Document Open(string path) => new(ProjectJson.Deserialize(File.ReadAllBytes(path)), path);
 
+    internal void SaveNew()
+    {
+        var path = Path ?? throw new InvalidOperationException("Choose where to save the project first.");
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+        var temp = path + "." + Guid.NewGuid().ToString("N") + ".partial";
+        try
+        {
+            File.WriteAllText(temp, ProjectJson.SerializePretty(Project));
+            File.Move(temp, path);
+            DidSave(path);
+        }
+        finally { File.Delete(temp); }
+    }
+
+    public void Rename(string name)
+    {
+        name = ProjectCatalog.ValidName(name);
+        if (Project.Name == name) return;
+        var previous = Project.Name;
+        var before = ProjectJson.Serialize(Project);
+        Project.Name = name;
+        try { Save(); }
+        catch
+        {
+            Project.Name = previous;
+            throw;
+        }
+        undo.Add(("Rename project", before));
+        redo.Clear();
+        Revision++;
+        Changed?.Invoke();
+    }
+
     /// <summary>Writes atomically and rotates name.cutroom.json.bak1..5.</summary>
     public void Save(string? path = null)
     {
@@ -130,6 +163,11 @@ public sealed class Document
             File.Copy(path, path + ".bak1", true);
         }
         File.Move(temp, path, true);
+        DidSave(path);
+    }
+
+    void DidSave(string path)
+    {
         Path = path;
         Dirty = false;
         lastSave = DateTime.UtcNow;

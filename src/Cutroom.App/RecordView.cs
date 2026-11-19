@@ -163,6 +163,7 @@ public sealed class RecordView : Grid
 
     async void StopRecording()
     {
+        using var work = s.BeginProjectWork();
         var path = recorder.Stop();
         meter.Stop();
         Update();
@@ -184,6 +185,7 @@ public sealed class RecordView : Grid
     {
         var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "Recordings|*.wav;*.mp3;*.flac;*.m4a;*.mp4;*.mkv;*.mov;*.flv|All files|*.*", Title = "Choose your narration recording" };
         if (dialog.ShowDialog() != true) return;
+        using var work = s.BeginProjectWork();
         await s.SetNarration(dialog.FileName);
         s.Say("Narration set. Next: clean it.");
     }

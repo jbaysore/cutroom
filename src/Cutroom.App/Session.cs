@@ -34,15 +34,15 @@ public sealed class Session : IDisposable
     public event Action? DocumentReplaced;
     public event Action<string>? Status;
 
-    public Session(string? path)
+    public Session(AppSettings settings, Document document)
     {
         Current = this;
-        Settings = AppSettings.Load();
+        Settings = settings;
         Transcriber.PreferGpu = Settings.GpuTranscription;
         Library = new LibraryIndex();
         Ai = new AiService(Settings.AiProvider);
         Mixer = new Mixer(AudioPathFor);
-        Doc = OpenOrCreate(path);
+        Doc = document;
         Hook();
         autosave = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         autosave.Tick += (_, _) => SaveSafely(force: false);
@@ -53,31 +53,6 @@ public sealed class Session : IDisposable
         _ = EnsureAllDerivatives();
     }
 
-    Document OpenOrCreate(string? path)
-    {
-        path ??= Settings.RecentProjects.FirstOrDefault(File.Exists);
-        if (path is not null && File.Exists(path))
-        {
-            try { return Document.Open(path); }
-            catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException)
-            {
-                MessageBox.Show($"Could not open {Path.GetFileName(path)}: {ex.Message}\nStarting a new project instead.", "Cutroom");
-            }
-        }
-        return NewDocument("Untitled " + DateTime.Now.ToString("yyyy-MM-dd HHmm"));
-    }
-
-    Document NewDocument(string name)
-    {
-        var folder = Path.Combine(ProjectsRoot, Derive.SafeFileName(name));
-        Directory.CreateDirectory(folder);
-        var doc = new Document(Project.CreateDefault(name), Path.Combine(folder, Derive.SafeFileName(name) + ".cutroom.json"));
-        doc.Save();
-        Remember(doc.Path!);
-        return doc;
-    }
-
-    public string ProjectsRoot => Settings.ProjectsFolder ?? AppSettings.DefaultProjectsFolder;
     public string ProjectFolder => Path.GetDirectoryName(Doc.Path!)!;
 
     void Hook()
@@ -90,32 +65,45 @@ public sealed class Session : IDisposable
         Mixer.Prepare(P, Doc.Revision);
     }
 
-    void Remember(string path)
+    public void RememberProject()
     {
-        Settings.RecentProjects.RemoveAll(p => p.Equals(path, StringComparison.OrdinalIgnoreCase));
-        Settings.RecentProjects.Insert(0, path);
-        if (Settings.RecentProjects.Count > 10) Settings.RecentProjects.RemoveRange(10, Settings.RecentProjects.Count - 10);
-        Settings.Save();
+        try { new ProjectCatalog(Settings).Remember(Doc.Path!); }
+        catch (Exception ex) when (ProjectCatalog.IsProjectError(ex)) { Say("Could not remember the project: " + ex.Message); }
     }
 
-    void Replace(Document doc)
+    public void Replace(Document doc)
     {
         Stop();
-        CleanupCancel?.Cancel();
-        SaveSafely();
         Doc = doc;
         Hook();
         Playhead = 0;
         SelectedClipId = null;
         MarkIn = MarkOut = null;
-        Remember(doc.Path!);
+        Source = null;
+        LibraryItemId = null;
+        ShowingSource = false;
+        SourcePosition = 0;
+        SourceIn = SourceOut = null;
+        SourceChanged?.Invoke();
         DocumentReplaced?.Invoke();
         ProjectChanged?.Invoke();
+        RememberProject();
         _ = EnsureAllDerivatives();
     }
 
-    public void New(string name) => Replace(NewDocument(name));
-    public void Open(string path) => Replace(Document.Open(path));
+    int projectWork;
+    public bool ProjectWorkInProgress => projectWork > 0;
+
+    public IDisposable BeginProjectWork()
+    {
+        projectWork++;
+        return new ProjectWork(this);
+    }
+
+    sealed class ProjectWork(Session session) : IDisposable
+    {
+        public void Dispose() => session.projectWork--;
+    }
 
     public void SaveSafely(bool force = true)
     {
@@ -179,6 +167,7 @@ public sealed class Session : IDisposable
 
     public async Task LoadSource(LibraryItem item, Moment? moment = null)
     {
+        using var work = BeginProjectWork();
         var media = P.Media.FirstOrDefault(m => m.Path.Equals(item.Path, StringComparison.OrdinalIgnoreCase)) ?? await MediaProbe.Probe(item.Path);
         Source = media;
         LibraryItemId = item.Id;
@@ -262,8 +251,13 @@ public sealed class Session : IDisposable
 
     async Task EnsureAllDerivatives()
     {
-        foreach (var m in P.Media.ToList()) await EnsureDerivatives(m);
-        if (P.Narration.CleanPath is { } clean && File.Exists(clean)) await EnsureCleanAudio(clean);
+        var document = Doc;
+        foreach (var m in document.Project.Media.ToList())
+        {
+            if (document != Doc) return;
+            await EnsureDerivatives(m);
+        }
+        if (document == Doc && P.Narration.CleanPath is { } clean && File.Exists(clean)) await EnsureCleanAudio(clean);
     }
 
     async Task EnsureCleanAudio(string clean)

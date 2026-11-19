@@ -49,6 +49,14 @@ public sealed class ExportView : Grid
         SetColumn(rightCard, 2);
         Children.Add(rightCard);
         IsVisibleChanged += (_, _) => { if (IsVisible) { RefreshIssues(); BuildPackage(); } };
+        s.DocumentReplaced += () =>
+        {
+            lastOutput = null;
+            bar.Value = 0;
+            status.Text = "";
+            reveal.Visibility = Visibility.Collapsed;
+            if (IsVisible) { RefreshIssues(); BuildPackage(); }
+        };
     }
 
     string ExportFolder => Path.Combine(s.ProjectFolder, "exports");
@@ -66,6 +74,7 @@ public sealed class ExportView : Grid
 
     async Task Export()
     {
+        using var work = s.BeginProjectWork();
         var output = Path.Combine(ExportFolder, Derive.SafeFileName(Path.GetFileNameWithoutExtension(fileName.Text)) + ".mp4");
         if (File.Exists(output) && MessageBox.Show($"{Path.GetFileName(output)} exists. Replace it?", "Export", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
         s.Stop();
@@ -94,6 +103,8 @@ public sealed class ExportView : Grid
         catch (Exception ex) when (ex is not OutOfMemoryException) { status.Text = "Export failed: " + ex.Message; }
         finally
         {
+            cancel.Dispose();
+            cancel = null;
             export.IsEnabled = true;
             cancelButton.Visibility = Visibility.Collapsed;
         }
@@ -166,6 +177,7 @@ public sealed class ExportView : Grid
 
     async Task Draft()
     {
+        using var work = s.BeginProjectWork();
         if (s.P.Script is null) return;
         s.Say("Drafting titles, description and tags…");
         try

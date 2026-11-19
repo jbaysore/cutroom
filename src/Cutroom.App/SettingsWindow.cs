@@ -108,7 +108,7 @@ public sealed class SettingsWindow : Window
             FolderList(panel, "Footage folders", s.Settings.FootageFolders, LibraryRole.Footage, Build);
             FolderList(panel, "Asset folders (music, SFX, images, backgrounds)", s.Settings.AssetFolders, LibraryRole.Asset, Build);
             panel.Children.Add(Ui.Header("Projects folder"));
-            panel.Children.Add(Ui.Text(s.ProjectsRoot, 12, true));
+            panel.Children.Add(Ui.Text(new ProjectCatalog(s.Settings).Root, 12, true));
             panel.Children.Add(Ui.Row(Ui.Button("Change…", () =>
             {
                 var d = new Microsoft.Win32.OpenFolderDialog { Title = "Where new projects are saved" };

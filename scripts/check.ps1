@@ -17,6 +17,6 @@ try {
     if (-not $p.WaitForExit(120000)) { $p.Kill(); throw 'UI smoke timed out' }
     if ($p.ExitCode -ne 0) { throw "UI smoke failed: $(Get-Content (Join-Path $smokeOut 'smoke-error.txt') -Raw -ErrorAction SilentlyContinue)" }
     $shots = @(Get-ChildItem $smokeOut -Filter *.png)
-    if ($shots.Count -ne 8) { throw "UI smoke produced $($shots.Count) of 8 screenshots" }
+    if ($shots.Count -ne 9) { throw "UI smoke produced $($shots.Count) of 9 screenshots" }
 } finally { Remove-Item Env:CUTROOM_DATA }
 Write-Output 'Cutroom check passed.'

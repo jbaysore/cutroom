@@ -103,6 +103,7 @@ public sealed class EditCommands(Session s)
 
     public async Task DropFiles(string[] files, Track? track, long at)
     {
+        using var work = s.BeginProjectWork();
         foreach (var f in files.Where(MediaProbe.IsMedia))
         {
             var m = await s.Import(f);
@@ -114,6 +115,7 @@ public sealed class EditCommands(Session s)
     /// <summary>F: fill the current slot from the source in-point (or position), trimmed to the slot length.</summary>
     public async Task FillSlot(bool useRange)
     {
+        using var work = s.BeginProjectWork();
         var slot = s.CurrentSlot;
         if (slot is null) { s.Say("No script slot here yet. Clean the narration first."); return; }
         if (s.Source is null) { s.Say("Pick footage in the library first (Enter previews it in the source viewer)."); return; }
@@ -387,6 +389,7 @@ public sealed class EditCommands(Session s)
 
     public async Task PlanVisuals()
     {
+        using var work = s.BeginProjectWork();
         if (!s.Ai.Enabled) { s.Say("Install and sign in to Claude Code or Codex to use AI."); return; }
         if (P.Slots.Count == 0) { s.Say("Clean the narration first so there are slots to plan."); return; }
         s.Say("Planning visuals with AI…");

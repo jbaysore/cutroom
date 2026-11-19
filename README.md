@@ -16,7 +16,7 @@ The first cleanup downloads the speech models (about 1.8 GB, verified by sha256)
 
 ## Where things live
 
-- **Projects:** `Documents\Cutroom\<name>\<name>.cutroom.json`. Recordings go in `narration\` and exports in `exports\`. Autosave keeps `.bak` copies.
+- **Projects:** Create, open, and rename projects from the launch screen or the editor’s **Projects…** button. **Browse…** opens projects from other folders and adds them to the list. New projects default to `Documents\Cutroom\<name>\<name>.cutroom.json`. Recordings go in `narration\` and exports in `exports\`. Autosave keeps `.bak` copies.
 - **Settings, shortcuts, library index, caches:** `%LOCALAPPDATA%\Cutroom`.
 - **Footage and asset folders:** indexed in place. Cutroom never moves or renames your files.
 

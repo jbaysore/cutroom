@@ -1,11 +1,12 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Windows.Threading;
 
 namespace Cutroom.App;
 
 /// <summary>Loopback-only health and graceful-stop endpoints for the local Project Hub operator.</summary>
-internal sealed class LocalOperatorServer(MainWindow window) : IDisposable
+internal sealed class LocalOperatorServer(Dispatcher dispatcher, Action closeWindow) : IDisposable
 {
     public const int Port = 3891;
 
@@ -61,7 +62,7 @@ internal sealed class LocalOperatorServer(MainWindow window) : IDisposable
             catch (SocketException) { }
 
             if (requestStop && !stop.IsCancellationRequested)
-                _ = window.Dispatcher.BeginInvoke(new Action(window.CloseFromOperator));
+                _ = dispatcher.BeginInvoke(closeWindow);
         }
     }
 

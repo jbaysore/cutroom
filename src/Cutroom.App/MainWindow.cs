@@ -27,7 +27,7 @@ public sealed class MainWindow : Window
     readonly System.Windows.Threading.DispatcherTimer statusClear = new() { Interval = TimeSpan.FromSeconds(6) };
     public Stage Current { get; private set; } = Stage.Edit;
 
-    public MainWindow(string? path)
+    public MainWindow(AppSettings settings, Document document)
     {
         Theme.Window(this);
         Width = 1600;
@@ -35,7 +35,7 @@ public sealed class MainWindow : Window
         MinWidth = 1100;
         MinHeight = 680;
         WindowState = WindowState.Maximized;
-        Session = new Session(path);
+        Session = new Session(settings, document);
         renderer = new PreviewRenderer(Session);
         record = new RecordView(Session);
         clean = new CleanView(Session);
@@ -76,9 +76,7 @@ public sealed class MainWindow : Window
         UpdateTitle();
         UpdateJobs();
         UpdateAi();
-        // Start where the work is: no narration yet means Record, an uncleaned one means Clean.
-        var n = Session.P.Narration;
-        Show(n.MediaId is null ? Stage.Record : !n.Processed ? Stage.Clean : Stage.Edit);
+        ShowProjectStage();
     }
 
     FrameworkElement TopBar()
@@ -87,7 +85,11 @@ public sealed class MainWindow : Window
         logo.Foreground = Theme.AccentBrush;
         logo.Margin = new Thickness(0, 0, 16, 0);
         projectName.Margin = new Thickness(0, 0, 20, 0);
-        var file = Ui.Button("File ▾", () => { }, tip: "New, open, import");
+        projectName.MaxWidth = 160;
+        projectName.TextWrapping = TextWrapping.NoWrap;
+        projectName.TextTrimming = TextTrimming.CharacterEllipsis;
+        var projects = Ui.Button("Projects…", OpenProjects, "file.projects");
+        var file = Ui.Button("File ▾", () => { }, tip: "Save and import");
         file.Click += (_, _) => FileMenu(file);
 
         var stages = new Border { Background = Theme.PanelBrush, CornerRadius = new CornerRadius(10), Padding = new Thickness(4) };
@@ -102,7 +104,7 @@ public sealed class MainWindow : Window
         stages.Child = row;
 
         var settings = Ui.Button("⚙", () => OpenSettings(0), tip: "Settings and shortcuts");
-        var left = Ui.Row(logo, file, projectName);
+        var left = Ui.Row(logo, projects, file, projectName);
         left.Margin = new Thickness(0);
         left.VerticalAlignment = VerticalAlignment.Center;
         var right = Ui.Row(status, Spacer(), jobs, Spacer(), ai, Spacer(), settings);
@@ -120,40 +122,54 @@ public sealed class MainWindow : Window
     {
         var menu = new ContextMenu { PlacementTarget = anchor, Placement = PlacementMode.Bottom };
         void Item(string header, Action a, string? key = null) { var i = new MenuItem { Header = header, InputGestureText = key ?? "" }; i.Click += (_, _) => a(); menu.Items.Add(i); }
-        Item("New project…", NewProject);
-        Item("Open project…", OpenProject);
         Item("Save", () => { Session.SaveSafely(); Say("Saved"); }, Session.Settings.KeyFor("file.save"));
         menu.Items.Add(new Separator());
         Item("Import media…", ImportMedia);
-        var recent = Session.Settings.RecentProjects.Where(File.Exists).Skip(1).Take(8).ToList();
-        if (recent.Count > 0)
-        {
-            menu.Items.Add(new Separator());
-            foreach (var r in recent) { var path = r; Item(Path.GetFileName(Path.GetDirectoryName(path)) ?? path, () => OpenPath(path)); }
-        }
         menu.Items.Add(new Separator());
         Item("Settings…", () => OpenSettings(0));
         menu.IsOpen = true;
     }
 
-    void NewProject()
+    ProjectsWindow? projectsWindow;
+
+    void OpenProjects()
     {
-        var name = Ui.Ask(this, "New project", "Video name:", "");
-        if (string.IsNullOrWhiteSpace(name)) return;
-        Session.New(name.Trim());
-        Show(Stage.Record);
+        if (!record.Recording)
+        {
+            clean.StopPlayback();
+            Session.Stop();
+        }
+        projectsWindow = CreateProjectsWindow();
+        projectsWindow.Owner = this;
+        try { projectsWindow.ShowDialog(); }
+        finally { projectsWindow = null; }
     }
 
-    void OpenProject()
+    internal ProjectsWindow CreateProjectsWindow() => new(Session.Settings, document =>
     {
-        var d = new Microsoft.Win32.OpenFileDialog { Filter = "Cutroom projects|*.cutroom.json", InitialDirectory = Session.ProjectsRoot };
-        if (d.ShowDialog(this) == true) OpenPath(d.FileName);
+        Session.Replace(document);
+        ShowProjectStage();
+    }, () => Session.Doc, PrepareProjectSwitch);
+
+    void PrepareProjectSwitch()
+    {
+        if (record.Recording) throw new InvalidOperationException("Stop recording before switching projects.");
+        if (Session.ProjectWorkInProgress || Session.CleanupCancel is not null)
+            throw new InvalidOperationException("Wait for the current project’s work to finish before switching projects.");
+        if (Session.Doc.Dirty)
+        {
+            try { Session.Doc.Save(); }
+            catch (Exception ex) when (ProjectCatalog.IsProjectError(ex))
+            {
+                throw new IOException("Could not save the current project: " + ex.Message, ex);
+            }
+        }
     }
 
-    void OpenPath(string path)
+    void ShowProjectStage()
     {
-        try { Session.Open(path); }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException) { Say("Could not open: " + ex.Message); }
+        var narration = Session.P.Narration;
+        Show(narration.MediaId is null ? Stage.Record : !narration.Processed ? Stage.Clean : Stage.Edit);
     }
 
     async void ImportMedia()
@@ -193,6 +209,7 @@ public sealed class MainWindow : Window
     void UpdateTitle()
     {
         projectName.Text = Session.P.Name;
+        projectName.ToolTip = Session.P.Name;
         Title = $"{Session.P.Name} · Cutroom";
     }
 
@@ -276,6 +293,7 @@ public sealed class MainWindow : Window
             case "stage.edit": Show(Stage.Edit); break;
             case "stage.export": Show(Stage.Export); break;
             case "file.save": s.SaveSafely(); Say("Saved"); break;
+            case "file.projects": OpenProjects(); break;
             case "edit.undo": s.Undo(); break;
             case "edit.redo": s.Redo(); break;
             case "play.toggle": s.Toggle(); break;
@@ -336,6 +354,7 @@ public sealed class MainWindow : Window
 
     public void CloseFromOperator()
     {
+        projectsWindow?.Close();
         Close();
     }
 }

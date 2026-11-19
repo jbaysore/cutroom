@@ -126,6 +126,7 @@ public sealed class InspectorPanel : ScrollViewer
 
     async Task DraftText(Clip clip)
     {
+        using var work = s.BeginProjectWork();
         var words = Derive.TimelineWords(s.P).Where(w => w.TimeRange.Start >= clip.Start && w.TimeRange.Start < clip.End).Select(w => w.Word).ToList();
         if (words.Count == 0) { s.Say("No narration under this card to draft from."); return; }
         var spoken = Derive.Join(words);
