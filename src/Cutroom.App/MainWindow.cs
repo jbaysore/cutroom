@@ -333,4 +333,9 @@ public sealed class MainWindow : Window
             case "record.retake": record.MarkRetake(); break;
         }
     }
+
+    public void CloseFromOperator()
+    {
+        Close();
+    }
 }

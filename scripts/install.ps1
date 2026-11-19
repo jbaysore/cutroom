@@ -32,4 +32,5 @@ if (!$NoShortcut) {
     $shortcut.Description = 'Cutroom video editor'
     $shortcut.Save()
 }
+& (Join-Path $PSScriptRoot 'install-hub-operator.ps1') -Destination $Destination
 Write-Output "Installed Cutroom to $Destination."

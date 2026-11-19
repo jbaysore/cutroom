@@ -2,11 +2,14 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Net.Sockets;
 
 namespace Cutroom.App;
 
 public partial class App : Application
 {
+    LocalOperatorServer? operatorServer;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -16,7 +19,24 @@ public partial class App : Application
         DispatcherUnhandledException += OnUnhandled;
         var window = new MainWindow(e.Args.FirstOrDefault(a => a.EndsWith(".cutroom.json", StringComparison.OrdinalIgnoreCase)));
         MainWindow = window;
+        try
+        {
+            operatorServer = new LocalOperatorServer(window);
+            operatorServer.Start();
+        }
+        catch (SocketException ex)
+        {
+            operatorServer?.Dispose();
+            operatorServer = null;
+            MessageBox.Show($"Cutroom opened, but its local Project Hub operator could not start on port {LocalOperatorServer.Port}.\n\n{ex.Message}", "Cutroom", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
         window.Show();
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        operatorServer?.Dispose();
+        base.OnExit(e);
     }
 
     static void OnUnhandled(object sender, DispatcherUnhandledExceptionEventArgs e)
