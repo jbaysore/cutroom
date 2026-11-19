@@ -166,6 +166,8 @@ public sealed class SettingsWindow : Window
             Ui.Text("Runs on your PC. The turbo model is accurate and fast; the base model is a lighter fallback.", 12, true),
             new Border { Height = 8 },
             Ui.Combo(models, s.Settings.WhisperModel, m => m == Models.WhisperTurbo.Name ? "Large v3 turbo (recommended)" : "Base English (fast, less accurate)", m => { s.Settings.WhisperModel = m; s.Settings.Save(); }),
+            Ui.Check("Use the graphics card (much faster; falls back to the CPU automatically)", s.Settings.GpuTranscription, v => { s.Settings.GpuTranscription = v; Transcriber.PreferGpu = v; s.Settings.Save(); }),
+            Ui.Text(File.Exists(Tools.WhisperGpu) ? "GPU transcription is installed." : "GPU transcription isn't installed in this build; the CPU is used.", 12, true),
             Ui.Header("Noise removal for new projects"),
             new Border { Height = 6 },
             Ui.Combo(Enum.GetValues<Denoiser>(), s.Settings.Denoiser, d => d switch { Denoiser.DeepFilterNet => "DeepFilterNet (best)", Denoiser.RNNoise => "RNNoise (lighter)", _ => "Off" }, d => { s.Settings.Denoiser = d; s.Settings.Save(); }),

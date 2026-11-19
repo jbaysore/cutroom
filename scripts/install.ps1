@@ -11,6 +11,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Publish failed' }
 foreach ($required in @('Cutroom.exe', 'Cutroom.Engine.Native.dll', 'ffmpeg.exe', 'ffprobe.exe', 'whisper\whisper-cli.exe')) {
     if (!(Test-Path -LiteralPath (Join-Path $publish $required))) { throw "Publish is missing $required" }
 }
+if (!(Test-Path -LiteralPath (Join-Path $publish 'whisper-vulkan\whisper-cli.exe'))) { Write-Warning 'GPU transcription is not included; cleanup will transcribe on the CPU.' }
 
 $exe = Join-Path $Destination 'Cutroom.exe'
 # Only a Cutroom running from the install folder is closed, and it saves on close.

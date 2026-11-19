@@ -1,7 +1,8 @@
 # Build plus all fast tests. Needs no models or recordings; this is the project's check command.
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
-& (Join-Path $PSScriptRoot 'build.ps1') -Configuration Debug
+# The GPU whisper build is skipped to keep the check fast; it is used here if already built.
+& (Join-Path $PSScriptRoot 'build.ps1') -Configuration Debug -SkipWhisperGpu
 & dotnet test (Join-Path $projectRoot 'tests\Cutroom.Tests\Cutroom.Tests.csproj') -c Debug --no-build -nologo --filter 'Category!=Models&Category!=Live'
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
 

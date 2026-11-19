@@ -103,8 +103,9 @@ public static class CleanupEngine
         if (File.Exists(wordsCache)) raw = JsonSerializer.Deserialize<List<RawWord>>(await File.ReadAllTextAsync(wordsCache, ct).ConfigureAwait(false))!;
         else
         {
-            Report("Transcribing", 0);
-            raw = await Transcriber.Transcribe(wav16, Path.Combine(Models.Folder, whisperModel), vocabulary, new Progress<double>(p => Report("Transcribing", p)), ct).ConfigureAwait(false);
+            string stage = Transcriber.UsesGpu ? "Transcribing on the GPU" : "Transcribing";
+            Report(stage, 0);
+            raw = await Transcriber.Transcribe(wav16, Path.Combine(Models.Folder, whisperModel), vocabulary, new Progress<double>(p => Report(stage, p)), ct).ConfigureAwait(false);
             await File.WriteAllTextAsync(wordsCache, JsonSerializer.Serialize(raw), ct).ConfigureAwait(false);
         }
 
@@ -215,6 +216,7 @@ public static class CleanupEngine
             Text = r.Text, Norm = string.Join(' ', Normalizer.Tokens(r.Text)), Start = Time.FromSeconds(r.Start), End = Time.FromSeconds(r.End),
             Confidence = r.Probability, Trailing = r.Trailing,
         }).ToList();
+        var anchored = new bool[words.Count];
         int i = 0;
         while (i < raw.Count)
         {
@@ -241,15 +243,62 @@ public static class CleanupEngine
                         w.Start = Time.FromSeconds(start);
                         w.End = Time.FromSeconds(end);
                         w.Confidence = Math.Min(w.Confidence, .5 + a.Score / 2);
+                        anchored[i + k] = true;
                     }
                 }
             }
             progress?.Report((j + 1) / (double)raw.Count);
             i = j + 1;
         }
+        FitUnanchored(words, raw, anchored);
         // Keep words ordered and non-overlapping.
         for (int k = 1; k < words.Count; k++)
             if (words[k].Start < words[k - 1].End) words[k].Start = Math.Min(words[k].End - Time.FromMs(10), words[k - 1].End);
         return words;
+    }
+    /// <summary>
+    /// A word the aligner could not place keeps whisper's rougher time, which can land on top of an aligned neighbour
+    /// (and then a retake decision snaps to the wrong copy of a phrase). Such runs are spread over the gap between
+    /// their aligned neighbours, in proportion to whisper's durations. Runs already inside the gap are left alone.
+    /// </summary>
+    internal static void FitUnanchored(List<Word> words, IReadOnlyList<RawWord> raw, bool[] anchored)
+    {
+        int a = 0;
+        while (a < words.Count)
+        {
+            if (anchored[a]) { a++; continue; }
+            int b = a;
+            while (b + 1 < words.Count && !anchored[b + 1]) b++;
+            int prev = a - 1, next = b + 1;
+            long lo = prev >= 0 ? words[prev].End : long.MinValue, hi = next < words.Count ? words[next].Start : long.MaxValue;
+            bool inside = true;
+            for (int k = a; k <= b; k++)
+                if (words[k].Start < lo || words[k].End > hi || k > a && words[k].Start < words[k - 1].End) inside = false;
+            if (!inside)
+            {
+                if (prev >= 0 && next < words.Count)
+                {
+                    // Both neighbours known: share the gap (at least 10 ms per word).
+                    double total = 0;
+                    for (int k = a; k <= b; k++) total += Math.Max(.01, raw[k].End - raw[k].Start);
+                    long span = Math.Max(hi - lo, Time.FromMs(10) * (b - a + 1));
+                    long t = lo;
+                    for (int k = a; k <= b; k++)
+                    {
+                        long d = Math.Max(Time.FromMs(10), (long)(span * Math.Max(.01, raw[k].End - raw[k].Start) / total));
+                        words[k].Start = t;
+                        words[k].End = t + d;
+                        t += d;
+                    }
+                }
+                else
+                {
+                    // One side only: shift the run so it no longer crosses that neighbour.
+                    long shift = prev >= 0 ? Math.Max(0, lo - words[a].Start) : Math.Min(0, hi - words[b].End);
+                    for (int k = a; k <= b; k++) { words[k].Start += shift; words[k].End += shift; }
+                }
+            }
+            a = b + 1;
+        }
     }
 }

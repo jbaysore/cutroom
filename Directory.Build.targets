@@ -8,6 +8,7 @@
     <None Include="$(MSBuildThisFileDirectory)artifacts\native\Cutroom.Engine.Native.dll" Link="Cutroom.Engine.Native.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
     <None Include="$(MSBuildThisFileDirectory).deps\ffmpeg\bin\*.dll;$(MSBuildThisFileDirectory).deps\ffmpeg\bin\ffmpeg.exe;$(MSBuildThisFileDirectory).deps\ffmpeg\bin\ffprobe.exe" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
     <None Include="$(MSBuildThisFileDirectory).deps\whisper\*.dll;$(MSBuildThisFileDirectory).deps\whisper\whisper-cli.exe" Link="whisper\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory).deps\whisper-vulkan\*.dll;$(MSBuildThisFileDirectory).deps\whisper-vulkan\whisper-cli.exe" Link="whisper-vulkan\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
     <None Include="$(MSBuildThisFileDirectory).deps\tools\*" Link="tools\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
     <None Include="$(MSBuildThisFileDirectory).deps\fonts\*" Link="fonts\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>

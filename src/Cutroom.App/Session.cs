@@ -38,6 +38,7 @@ public sealed class Session : IDisposable
     {
         Current = this;
         Settings = AppSettings.Load();
+        Transcriber.PreferGpu = Settings.GpuTranscription;
         Library = new LibraryIndex();
         Ai = new AiService(Settings.AiProvider);
         Mixer = new Mixer(AudioPathFor);

@@ -124,6 +124,7 @@ public sealed class AppSettings
     public ChannelProfile Channel { get; set; } = new();
     public bool AutoSfx { get; set; } = true;
     public string WhisperModel { get; set; } = "ggml-large-v3-turbo.bin";
+    public bool GpuTranscription { get; set; } = true;
 
     public string KeyFor(string command) => Keys.TryGetValue(command, out var k) ? k : Commands.Find(command)?.DefaultKey ?? "";
 

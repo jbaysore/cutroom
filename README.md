@@ -10,7 +10,7 @@ Requirements: Windows 11, the .NET 10 SDK and Visual Studio 2022 C++ Build Tools
 powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 ```
 
-This fetches the pinned dependencies (FFmpeg, whisper.cpp, DeepFilterNet, fonts) into `.deps\`. It then builds the native engine and publishes Cutroom self-contained to `%LOCALAPPDATA%\Programs\Cutroom`, and adds **Cutroom** to the Start menu. Run it again to update; your projects and settings are kept.
+This fetches the pinned dependencies (FFmpeg, whisper.cpp, DeepFilterNet, fonts) into `.deps\`. It then builds the native engine and the GPU version of whisper.cpp (once, a few minutes; it makes narration cleanup much faster, and Cutroom uses the CPU if it's unavailable), and publishes Cutroom self-contained to `%LOCALAPPDATA%\Programs\Cutroom`, and adds **Cutroom** to the Start menu. Run it again to update; your projects and settings are kept.
 
 The first cleanup downloads the speech models (about 1.8 GB, verified by sha256) to `%LOCALAPPDATA%\Cutroom\models`.
 
@@ -36,5 +36,6 @@ The first cleanup downloads the speech models (about 1.8 GB, verified by sha256)
 ```powershell
 scripts\build.ps1          # bootstrap + native engine + managed build (Release)
 scripts\check.ps1          # Debug build, fast tests, UI smoke (the project's check command)
+scriptsuild-whisper-vulkan.ps1  # GPU whisper.cpp only (build.ps1 runs it; -Force rebuilds)
 scripts\test-speech.ps1    # model-based speech tests and the end-to-end export test
 ```

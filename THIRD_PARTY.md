@@ -6,6 +6,7 @@ Cutroom downloads these pinned components with `scripts/bootstrap.ps1` (tools) o
 |---|---|---|
 | FFmpeg 8.1 (BtbN LGPL shared build) | Decoding, proxies, audio extraction, encoding (AMF), loudness | LGPL-2.1+ |
 | whisper.cpp / ggml (release b5454) | Local speech-to-text | MIT |
+| Vulkan-Headers, SPIRV-Headers (1.4.363); shaderc, glslang, SPIRV-Tools (conda-forge) | Build-time only, to compile the GPU whisper.cpp build; not shipped | Apache-2.0 / MIT / BSD-3-Clause |
 | Whisper large-v3-turbo and base.en weights (ggml) | Transcription models | MIT |
 | DeepFilterNet 0.5.6 (`deep-filter` CLI) | Background noise removal | MIT / Apache-2.0 |
 | RNNoise model `sh.rnnn` (GregorR/rnnoise-models) | Fallback noise removal via FFmpeg `arnndn` | BSD-3-Clause |

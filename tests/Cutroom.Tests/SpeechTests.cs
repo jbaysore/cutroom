@@ -178,10 +178,25 @@ public class TranscriberTests
         Assert.Equal(.1, words[0].Start, 3);
         Assert.Equal(.4, words[0].End, 3);
     }
+
+    [Fact]
+    public void UnalignedWordsAreFittedBetweenAlignedNeighbours()
+    {
+        // "best" and "to" were aligned; whisper left "way" on top of "is" (as the GPU build did once).
+        RawWord R(string text, double a, double b) => new(text, a, b, 1, "");
+        var raw = new List<RawWord> { R("best", 7.8, 8.1), R("way", 8.75, 8.77), R("to", 8.75, 9.0), R("is", 8.8, 8.9) };
+        var words = raw.Select(r => new Word { Text = r.Text, Start = Time.FromSeconds(r.Start), End = Time.FromSeconds(r.End) }).ToList();
+        words[0].Start = Time.FromSeconds(7.7); words[0].End = Time.FromSeconds(7.95);
+        words[2].Start = Time.FromSeconds(8.27); words[2].End = Time.FromSeconds(8.4);
+        words[3].Start = Time.FromSeconds(8.78); words[3].End = Time.FromSeconds(8.84);
+        CleanupEngine.FitUnanchored(words, raw, [true, false, true, true]);
+        Assert.True(words[1].Start >= words[0].End && words[1].End <= words[2].Start, $"{words[1].Start}-{words[1].End}");
+    }
 }
 
 /// <summary>Runs the real models on synthesized speech. Excluded from the fast check (needs ~2 GB of models).</summary>
 [Trait("Category", "Models")]
+[Collection(SharedCache.Name)]
 public class SpeechPipelineTests
 {
     [Fact]

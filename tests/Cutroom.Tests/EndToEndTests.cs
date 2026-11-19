@@ -13,6 +13,7 @@ namespace Cutroom.Tests;
 /// and a re-transcription of the export. Needs the speech models; run with scripts/test-e2e.ps1.
 /// </summary>
 [Trait("Category", "Models")]
+[Collection(SharedCache.Name)]
 public class EndToEndTests
 {
     const string ScriptText =

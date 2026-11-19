@@ -13,6 +13,13 @@ public static class Transcriber
     /// <summary>Performance-core count: whisper on the 13600K is ~4x faster on 6 P-cores than on all 20 threads.</summary>
     public static int Threads => Math.Clamp(Environment.ProcessorCount / 3, 4, 8);
 
+    /// <summary>Use the Vulkan GPU build when it is bundled (Settings → Narration). It falls back to the CPU build on any failure.</summary>
+    public static bool PreferGpu { get; set; } = true;
+    static bool gpuFailed;
+
+    /// <summary>True when the next transcription will run on the GPU.</summary>
+    public static bool UsesGpu => PreferGpu && !gpuFailed && File.Exists(Tools.WhisperGpu);
+
     public static async Task<List<RawWord>> Transcribe(string wav16k, string modelPath, IReadOnlyList<string> vocabulary, IProgress<double>? progress, CancellationToken ct)
     {
         var outBase = Path.Combine(Path.GetTempPath(), "cutroom-whisper-" + Guid.NewGuid().ToString("N"));
@@ -28,14 +35,29 @@ public static class Transcriber
             args.Add("--prompt");
             args.Add("Glossary: " + string.Join(", ", vocabulary.Take(40)) + ".");
         }
+        Task Run(string exe) => Tools.Run(exe, args, ct, onError: line =>
+        {
+            var m = Regex.Match(line, @"progress\s*=\s*(\d+)%");
+            if (m.Success) progress?.Report(int.Parse(m.Groups[1].Value) / 100.0);
+        });
+        async Task<List<RawWord>> Attempt(string exe)
+        {
+            await Run(exe).ConfigureAwait(false);
+            return Parse(await File.ReadAllTextAsync(outBase + ".json", ct).ConfigureAwait(false));
+        }
         try
         {
-            await Tools.Run(Tools.Whisper, args, ct, onError: line =>
+            if (UsesGpu)
             {
-                var m = Regex.Match(line, @"progress\s*=\s*(\d+)%");
-                if (m.Success) progress?.Report(int.Parse(m.Groups[1].Value) / 100.0);
-            }).ConfigureAwait(false);
-            return Parse(await File.ReadAllTextAsync(outBase + ".json", ct).ConfigureAwait(false));
+                try { return await Attempt(Tools.WhisperGpu).ConfigureAwait(false); }
+                catch (Exception ex) when (ex is ToolException or System.ComponentModel.Win32Exception or IOException or JsonException)
+                {
+                    // Driver or device trouble: remember it for this session and redo the work on the CPU.
+                    gpuFailed = true;
+                    progress?.Report(0);
+                }
+            }
+            return await Attempt(Tools.Whisper).ConfigureAwait(false);
         }
         finally
         {

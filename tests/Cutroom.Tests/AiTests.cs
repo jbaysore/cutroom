@@ -17,6 +17,7 @@ sealed class FakeProvider(params string[] answers) : IAiProvider
     }
 }
 
+[Collection(SharedCache.Name)]
 public class AiTests
 {
     public AiTests() => Tools.CacheRoot = Directory.CreateTempSubdirectory("cutroom-ai").FullName;
@@ -95,6 +96,7 @@ public class AiTests
 
 /// <summary>One real call through each installed CLI (uses the subscription). Run manually with --filter Category=Live.</summary>
 [Trait("Category", "Live")]
+[Collection(SharedCache.Name)]
 public class AiLiveTests
 {
     [Theory]

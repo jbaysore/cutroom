@@ -1,7 +1,12 @@
-param([switch]$SkipManaged, [string]$Configuration = 'Release')
+param([switch]$SkipManaged, [switch]$SkipWhisperGpu, [string]$Configuration = 'Release')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 & (Join-Path $PSScriptRoot 'bootstrap.ps1') | Out-Null
+if (!$SkipWhisperGpu) {
+    # Optional: transcription on the graphics card. Built once (a few minutes), then cached; the CPU build is the fallback.
+    try { & (Join-Path $PSScriptRoot 'build-whisper-vulkan.ps1') }
+    catch { Write-Warning "GPU transcription was not built, so the CPU build will be used: $($_.Exception.Message)" }
+}
 
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath

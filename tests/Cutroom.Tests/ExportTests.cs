@@ -5,6 +5,11 @@ using Cutroom.Library;
 
 namespace Cutroom.Tests;
 
+/// <summary>Tests that point the static Tools.CacheRoot at their own folder must not run in parallel.</summary>
+[CollectionDefinition(Name)]
+public sealed class SharedCache { public const string Name = "Shared Tools.CacheRoot"; }
+
+[Collection(SharedCache.Name)]
 public class ExportTests
 {
     [Fact]

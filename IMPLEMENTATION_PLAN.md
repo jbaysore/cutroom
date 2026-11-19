@@ -39,10 +39,14 @@ This plan says how to build what [SCOPE.md](SCOPE.md) defines. Phases are a buil
   - **Text and shapes.** Rasterized with WPF (`FormattedText`, geometry) into textures that the native compositor draws, instead of DirectWrite inside the engine. Preview and export still share the same pixels.
   - **Video decode.** FFmpeg software decode with `sws_scale` to BGRA, plus a one-frame lookahead. Preview decodes proxies, and export decodes the originals.
   - **Export.** Composed frames are read back from the GPU and piped to `ffmpeg.exe` (`h264_amf`, with `h264_mf` as the fallback). The mixed audio is muxed in the same `ffmpeg.exe` call.
-  - **Transcription.** The whisper.cpp prebuilt CPU binary with `ggml-large-v3-turbo` is the baseline. A Vulkan GPU build stays an optional upgrade.
+  - **Transcription.** whisper.cpp `b5454` with `ggml-large-v3-turbo`, on the GPU through Vulkan.
+    - `scripts/build-whisper-vulkan.ps1` compiles the GPU build without the Vulkan SDK. Its inputs are pinned downloads: the whisper.cpp source, Vulkan-Headers and SPIRV-Headers 1.4.363, and conda-forge's shaderc/glslang/spirv-tools for `glslc`. `vulkan-1.lib` is generated from the driver's `vulkan-1.dll`.
+    - The build directory is a short temp path, because ggml's shader generator nests deep enough to exceed Windows' 260-character limit.
+    - On the RX 6900 XT, 8.7 minutes of speech transcribes in about 70 s, against 216 s on 6 CPU cores. Accuracy is equivalent; the differences are ordinary decoding variance.
+    - The prebuilt CPU binary stays bundled. Cutroom switches to it for the rest of the session if the GPU build fails to start, fails, or writes unreadable output. A Settings → Narration toggle turns the GPU off.
     - It runs on the 6 performance cores: on the 13600K, using all 20 threads was about 4× slower.
     - Whisper gets 2 s of padded silence. Its timestamps drift on the last words when a recording stops right after speech.
-  - **ONNX models** (Silero VAD and the wav2vec2 aligner) run on the CPU ONNX Runtime. DirectML crashed natively (0xC0000005), in a way that can't be caught from managed code. Confident forced alignments may move whisper's word edges by up to 1.5 s.
+  - **ONNX models** (Silero VAD and the wav2vec2 aligner) run on the CPU ONNX Runtime. DirectML crashed natively (0xC0000005), in a way that can't be caught from managed code. Confident forced alignments may move whisper's word edges by up to 1.5 s. Words the aligner can't place are fitted into the gap between their aligned neighbors, so a rough whisper time can't overlap the next word and pull a retake decision onto the wrong copy of a phrase.
   - **Denoise.** Uses the DeepFilterNet command-line tool (`deep-filter`, WAV to WAV) instead of an in-process ONNX model. RNNoise via FFmpeg `arnndn` remains the option and fallback.
   - **Undo.** Each edit stores a JSON snapshot of the project, instead of separate `Do`/`Undo` command classes. Autosave checks every 5 s.
   - **UI.** The WPF views are built in code (`Theme.cs` holds the `Ui` helpers), with no XAML per view. One keyboard dispatcher in `MainWindow` maps the Settings shortcut table to commands and scopes each command to its stage.

@@ -16,6 +16,8 @@ public static class Tools
     public static string Ffmpeg => Path.Combine(Root, "ffmpeg.exe");
     public static string Ffprobe => Path.Combine(Root, "ffprobe.exe");
     public static string Whisper => Path.Combine(Root, "whisper", "whisper-cli.exe");
+    /// <summary>Vulkan GPU build from scripts/build-whisper-vulkan.ps1; optional.</summary>
+    public static string WhisperGpu => Path.Combine(Root, "whisper-vulkan", "whisper-cli.exe");
     public static string DeepFilter => Path.Combine(Root, "tools", "deep-filter.exe");
     public static string RnnoiseModel => Path.Combine(Root, "tools", "sh.rnnn");
 
