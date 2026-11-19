@@ -138,7 +138,11 @@ public sealed class AppSettings
             .Select(g => (g.Key, g.ToList()))
             .Where(x => x.Item2.Select(c => c.Group).Distinct().Count() < x.Item2.Count || x.Item2.Any(c => c.Group is "General" or "Stages"));
 
-    public static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Cutroom");
+    /// <summary>Settings, index, cache and models. CUTROOM_DATA overrides it (smoke runs use a throwaway folder).</summary>
+    public static string Folder => Environment.GetEnvironmentVariable("CUTROOM_DATA") is { Length: > 0 } custom
+        ? custom : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Cutroom");
+    public static string DefaultProjectsFolder => Environment.GetEnvironmentVariable("CUTROOM_DATA") is { Length: > 0 } custom
+        ? Path.Combine(custom, "projects") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Cutroom");
     public static string DefaultPath => Path.Combine(Folder, "settings.json");
 
     public static AppSettings Load(string? path = null)
