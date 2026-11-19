@@ -1,5 +1,7 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using Cutroom.Audio;
 using Cutroom.Core;
@@ -7,209 +9,468 @@ using Cutroom.Speech;
 
 namespace Cutroom.App;
 
-/// <summary>
-/// Clean stage: one button runs the cleanup; every decision lands in a review list with the least certain first.
-/// Enter plays before/after, X toggles, N/P move, A accepts the rest.
-/// </summary>
-public sealed class CleanView : Grid
+public sealed class CleanView : Grid, IDisposable
 {
     readonly Session s;
+    readonly Player player = new();
+    readonly Mixer mixer;
     readonly ListBox list = new() { Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
-    readonly TextBlock summary = Ui.Text("", 13);
+    readonly TextBlock summary = Ui.Text("", 14);
     readonly TextBlock stage = Ui.Text("", 12, true);
+    readonly TextBlock time = Ui.Text("", 13, true);
+    readonly TextBlock passage = Ui.Text("", 18);
+    readonly TextBlock details = Ui.Text("", 16);
+    readonly TextBlock reason = Ui.Text("", 12, true);
+    readonly TextBlock playbackStatus = Ui.Text("", 12, true);
     readonly ProgressBar progress = new() { Height = 6, Maximum = 1, Margin = new Thickness(0, 6, 0, 6), Visibility = Visibility.Collapsed };
-    readonly Button run;
-    readonly Button cancel;
-    readonly HashSet<string> reviewed = [];
-    List<CleanupDecision> ordered = [];
+    readonly Slider seek = new()
+    {
+        IsMoveToPointEnabled = true, Minimum = 0, SmallChange = Time.FromSeconds(1), LargeChange = Time.FromSeconds(5),
+        Margin = new Thickness(0, 2, 0, 0),
+    };
+    readonly Canvas markers = new() { Height = 22, ClipToBounds = true };
+    readonly ContentControl settings = new();
+    readonly Button run, cancel, play, review, all, original, cut, toggle;
+    readonly FrameworkElement listen, reviewPane, decisionActions;
+    CleanPreview? preview;
+    List<CleanupDecision> visible = [];
+    long position, playbackEnd;
+    string? playbackPath;
     int renderedRevision = -1;
+    bool allDecisions, updatingSeek, dragging, resumeAfterDrag, playingTake;
+    (CleanPreview Preview, TimeRange Range)? nextAudition;
 
     public event Action? GoToEdit;
 
     public CleanView(Session session)
     {
         s = session;
-        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(68, GridUnitType.Star) });
+        mixer = new Mixer(_ => playbackPath);
+        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32, GridUnitType.Star), MinWidth = 300 });
+        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(310) });
 
-        run = Ui.Button("Clean narration", () => _ = Run(), primary: true, tip: "Remove dead air, breaths, mouth noises and retakes. Everything is reviewable.");
+        run = Ui.Button("Clean narration", () => _ = Run());
         cancel = Ui.Button("Cancel", () => s.CleanupCancel?.Cancel());
         cancel.Visibility = Visibility.Collapsed;
-        var keys = Ui.Text("Enter: hear before/after   X: undo or redo this cut   N / P: next / previous   A: accept the rest", 12, true);
-        var top = Ui.Stack(Ui.Row(run, cancel), progress, stage, summary, keys);
-        top.Margin = new Thickness(0, 0, 0, 10);
-        var left = new DockPanel();
-        DockPanel.SetDock(top, Dock.Top);
-        left.Children.Add(top);
-        left.Children.Add(list);
-        var leftCard = Ui.Card(left, 16);
-        SetColumn(leftCard, 0);
-        Children.Add(leftCard);
+        play = Ui.Button("Play cleaned narration", TogglePlayback, "clean.play", primary: true, tip: "Play or pause cleaned narration");
+        review = Ui.Button("Review cuts", () => SetView(false));
+        all = Ui.Button("All decisions", () => SetView(true));
+        original = Ui.Button("Hear original", () => Audition(false), tip: "Hear the selected region with this cut lifted");
+        cut = Ui.Button("Hear cut", () => Audition(true), tip: "Hear the selected region with this cut applied");
+        toggle = Ui.Button("Restore audio", Toggle, "clean.toggle", tip: "Toggle the selected decision");
+        decisionActions = Ui.Row(original, cut, toggle);
+        var next = Ui.Button("Continue to Edit →", () => GoToEdit?.Invoke());
+        var transport = Ui.Row(play, time);
+        transport.Margin = new Thickness(0, 8, 0, 0);
+        AutomationProperties.SetName(seek, "Cleaned narration position");
+        passage.MaxHeight = 90;
+        passage.TextTrimming = TextTrimming.CharacterEllipsis;
+        passage.Margin = new Thickness(0, 6, 0, 6);
+        listen = Ui.Card(Ui.Stack(Ui.Header("Cleaned narration"), summary, transport, seek, markers, passage, playbackStatus));
 
-        var right = Ui.Card(Ui.Scroll(BuildSettings()), 16);
-        SetColumn(right, 2);
-        Children.Add(right);
+        var reviewTop = Ui.Stack(Ui.Row(review, all), details, reason, decisionActions);
+        reviewTop.Margin = new Thickness(0, 0, 0, 8);
+        reason.Margin = new Thickness(0, 4, 0, 8);
+        details.MaxHeight = 85;
+        details.TextTrimming = TextTrimming.CharacterEllipsis;
+        var reviewPanel = new DockPanel();
+        DockPanel.SetDock(reviewTop, Dock.Top);
+        reviewPanel.Children.Add(reviewTop);
+        reviewPanel.Children.Add(list);
+        reviewPane = Ui.Card(reviewPanel);
+        reviewPane.Margin = new Thickness(0, 8, 0, 0);
 
+        var main = new DockPanel();
+        var header = Ui.Stack(Ui.Row(run, cancel, next), progress, stage);
+        header.Margin = new Thickness(0, 0, 0, 8);
+        DockPanel.SetDock(header, Dock.Top);
+        DockPanel.SetDock(listen, Dock.Top);
+        main.Children.Add(header);
+        main.Children.Add(listen);
+        main.Children.Add(reviewPane);
+        Children.Add(main);
+
+        var side = Ui.Card(Ui.Scroll(settings));
+        SetColumn(side, 2);
+        Children.Add(side);
+        settings.Content = BuildSettings();
+
+        seek.ValueChanged += (_, e) =>
+        {
+            if (!updatingSeek) Seek((long)e.NewValue, playingTake);
+        };
+        seek.AddHandler(Thumb.DragStartedEvent, new DragStartedEventHandler((_, _) =>
+        {
+            dragging = true;
+            resumeAfterDrag = playingTake;
+            StopPlayback();
+        }));
+        seek.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler((_, _) =>
+        {
+            dragging = false;
+            if (resumeAfterDrag && IsVisible && !Busy && preview is { } take && position < take.Duration)
+                StartPlayback(take, new(position, take.Duration), true, "");
+        }));
+        markers.SizeChanged += (_, _) => DrawMarkers();
+        list.SelectionChanged += (_, _) => UpdateDecision();
         list.MouseDoubleClick += (_, _) => Audition();
         s.ProjectChanged += Refresh;
-        s.DocumentReplaced += () => { reviewed.Clear(); Refresh(); };
+        s.DocumentReplaced += Reset;
+        IsVisibleChanged += (_, _) => { if (IsVisible) Refresh(); };
         Loaded += (_, _) => Refresh();
     }
+
+    bool Busy => s.CleanupCancel is not null || !run.IsEnabled;
+    CleanupDecision? Selected => (list.SelectedItem as ListBoxItem)?.Tag as CleanupDecision;
 
     FrameworkElement BuildSettings()
     {
         var n = s.P.Narration.Settings;
         void Set(string label, Action<CleanupSettings> change) => s.Edit(label, p => change(p.Narration.Settings));
+        void Pace(string label, double value, Func<CleanupSettings, double> get, Action<CleanupSettings, double> set)
+        {
+            if (Busy || value == get(s.P.Narration.Settings)) return;
+            Set(label, x => set(x, value));
+            if (s.P.Narration.Processed) _ = Run();
+        }
         return Ui.Stack(
             Ui.Header("Pacing"),
-            Ui.Text("Tight but natural by default. Changing these re-plans instantly after the first run.", 12, true),
+            Ui.Text("Tight but natural by default.", 12, true),
             new Border { Height = 10 },
-            Ui.Slider("Pause between sentences (ms)", 100, 500, n.SentenceGapMs, v => { Set("Sentence pause", x => x.SentenceGapMs = v); _ = Replan(); }, "0", 10),
-            Ui.Slider("Pause at paragraph breaks (ms)", 150, 900, n.ParagraphGapMs, v => { Set("Paragraph pause", x => x.ParagraphGapMs = v); _ = Replan(); }, "0", 10),
-            Ui.Slider("Pause at commas (ms)", 40, 300, n.CommaGapMs, v => { Set("Comma pause", x => x.CommaGapMs = v); _ = Replan(); }, "0", 10),
+            Ui.Slider("Pause between sentences (ms)", 100, 500, n.SentenceGapMs, v => Pace("Sentence pause", v, x => x.SentenceGapMs, (x, value) => x.SentenceGapMs = value), "0", 10),
+            Ui.Slider("Pause at paragraph breaks (ms)", 150, 900, n.ParagraphGapMs, v => Pace("Paragraph pause", v, x => x.ParagraphGapMs, (x, value) => x.ParagraphGapMs = value), "0", 10),
+            Ui.Slider("Pause at commas (ms)", 40, 300, n.CommaGapMs, v => Pace("Comma pause", v, x => x.CommaGapMs, (x, value) => x.CommaGapMs = value), "0", 10),
             Ui.Header("Sound"),
             new Border { Height = 6 },
             Ui.Text("Background noise removal", 12, true),
-            Ui.Combo(Enum.GetValues<Denoiser>(), n.Denoiser, d => d switch { Denoiser.DeepFilterNet => "DeepFilterNet (best)", Denoiser.RNNoise => "RNNoise (lighter)", _ => "Off" },
-                d => { Set("Denoiser", x => x.Denoiser = d); s.Settings.Denoiser = d; s.Settings.Save(); s.Say("Run the cleanup again to apply the new noise removal."); }),
-            Ui.Text($"Narration is leveled to {n.TargetLufs} LUFS; the final mix is leveled to −14 LUFS on export.", 12, true),
-            new Border { Height = 16 },
-            Ui.Row(Ui.Button("Next: edit →", () => GoToEdit?.Invoke(), primary: true)));
+            Ui.Combo(Enum.GetValues<Denoiser>(), n.Denoiser, d => d switch { Denoiser.DeepFilterNet => "DeepFilterNet", Denoiser.RNNoise => "RNNoise", _ => "Off" },
+                d => { Set("Denoiser", x => x.Denoiser = d); s.Settings.Denoiser = d; s.Settings.Save(); s.Say("Run cleanup again to apply the new noise removal."); }),
+            Ui.Text($"Narration is leveled to {n.TargetLufs} LUFS. The final mix is leveled to −14 LUFS on export.", 12, true));
     }
 
     async Task Run()
     {
-        if (s.P.FindMedia(s.P.Narration.MediaId) is null) { s.Say("Record or import a narration first."); return; }
-        if (s.P.Script is null) s.Say("Tip: load your script in Record for retake detection and correct spellings. Continuing without it.");
-        run.IsEnabled = false;
+        if (Busy) return;
+        if (s.P.FindMedia(s.P.Narration.MediaId) is null) { s.Say("Record or import narration first."); return; }
+        if (s.P.Script is null) s.Say("Load your script in Record to help match retakes and spellings.");
+        StopPlayback();
+        run.IsEnabled = settings.IsEnabled = false;
         cancel.Visibility = progress.Visibility = Visibility.Visible;
+        stage.Text = "Preparing narration…";
+        progress.Value = 0;
+        UpdateControls();
+        var document = s.Doc;
         try
         {
-            await s.RunCleanup(new Progress<CleanupStage>(st => { stage.Text = st.Name + "…"; progress.Value = st.Progress; }));
-            reviewed.Clear();
-            stage.Text = "Done. Review the list: least certain decisions are at the top.";
+            await s.RunCleanup(new Progress<CleanupStage>(st =>
+            {
+                if (document != s.Doc || run.IsEnabled) return;
+                stage.Text = st.Name + "…";
+                progress.Value = st.Progress;
+            }));
+            if (document == s.Doc)
+            {
+                StopPlayback();
+                position = 0;
+                stage.Text = "";
+                SetView(false);
+                UpdatePosition();
+            }
         }
-        catch (OperationCanceledException) { stage.Text = "Cancelled."; }
-        catch (Exception ex) when (ex is not OutOfMemoryException) { stage.Text = "Cleanup failed: " + ex.Message; }
+        catch (OperationCanceledException) { if (document == s.Doc) stage.Text = "Cleanup cancelled."; }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { if (document == s.Doc) stage.Text = "Cleanup failed: " + ex.Message; }
         finally
         {
-            run.IsEnabled = true;
+            run.IsEnabled = settings.IsEnabled = true;
             cancel.Visibility = progress.Visibility = Visibility.Collapsed;
+            UpdateControls();
         }
     }
 
-    /// <summary>Re-plans from cached transcription with the current pacing settings (keeps manual toggles where decisions match).</summary>
-    async Task Replan()
+    void Reset()
     {
-        if (!s.P.Narration.Processed) return;
-        await Run();
+        StopPlayback();
+        renderedRevision = -1;
+        preview = null;
+        position = 0;
+        stage.Text = "";
+        allDecisions = false;
+        list.Items.Clear();
+        settings.Content = BuildSettings();
+        Refresh();
     }
 
     void Refresh()
     {
+        if (!IsVisible) return;
         var n = s.P.Narration;
-        run.Content = n.Processed ? "Run cleanup again" : "Clean narration";
         if (s.Doc.Revision == renderedRevision) return;
         renderedRevision = s.Doc.Revision;
-        int selected = list.SelectedIndex;
-        ordered = n.Decisions.OrderBy(d => reviewed.Contains(d.Id)).ThenBy(d => d.Confidence).ThenBy(d => d.Start).ToList();
-        list.Items.Clear();
-        foreach (var d in ordered) list.Items.Add(new ListBoxItem { Content = Row(d), Padding = new Thickness(6, 4, 6, 4) });
-        if (ordered.Count > 0) list.SelectedIndex = Math.Clamp(selected, 0, ordered.Count - 1);
-        if (!n.Processed) { summary.Text = "Nothing cleaned yet."; return; }
-        long removed = n.SourceDuration - n.KeptSpans().Sum(x => x.Duration);
-        summary.Text = $"Removed {Format(removed)} of {Format(n.SourceDuration)} · {n.Decisions.Count(d => d.Removes)} cuts · " +
-                       $"{n.Decisions.Count(d => d.Removes && d.Kind is DecisionKind.Retake or DecisionKind.FalseStart)} retakes and false starts · " +
-                       $"{n.Decisions.Count(d => d.Kind is DecisionKind.AdLibKept or DecisionKind.PossibleSpeechKept)} kept for you to check · {reviewed.Count} reviewed";
-    }
-
-    static string Format(long ticks) => TimeSpan.FromSeconds(Time.ToSeconds(ticks)).ToString(@"m\:ss");
-
-    FrameworkElement Row(CleanupDecision d)
-    {
-        var (label, color) = d.Kind switch
+        long? sourcePosition = preview?.Map.ToSource(position);
+        StopPlayback();
+        run.Content = n.Processed ? "Run cleanup again" : "Clean narration";
+        preview = n.Processed ? new CleanPreview(s.P) : null;
+        listen.Visibility = reviewPane.Visibility = n.Processed ? Visibility.Visible : Visibility.Collapsed;
+        if (!n.Processed && !Busy)
+            stage.Text = n.MediaId is null ? "Record or import narration to get started." : "Clean the narration to trim pauses, mouth noise, and retakes.";
+        if (preview is { } take)
         {
-            DecisionKind.Retake => ("Retake", Theme.Card),
-            DecisionKind.FalseStart => ("False start", Theme.Card),
-            DecisionKind.AdLibKept => ("Ad-lib kept", Theme.Sub),
-            DecisionKind.PossibleSpeechKept => ("Possible speech kept", Theme.Sub),
-            DecisionKind.Breath => ("Breath", Theme.Game),
-            DecisionKind.MouthNoise => ("Mouth noise", Theme.Game),
-            _ => ("Pause", Theme.Muted),
-        };
-        var badge = new Border { Background = Theme.B(color, 60), CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 10, 0), Width = 150,
-            Child = new TextBlock { Text = label, Foreground = Theme.B(color) } };
-        string state = d.Removes ? "CUT" : "KEPT";
-        var info = Ui.Stack(
-            new TextBlock { Text = d.Context.Length > 0 ? d.Context : d.Reason, Foreground = Theme.TextBrush, TextWrapping = TextWrapping.Wrap },
-            new TextBlock { Text = $"{Time.Timecode(d.Start)} · {d.Reason}", Foreground = Theme.MutedBrush, FontSize = 11, TextWrapping = TextWrapping.Wrap });
-        var right = Ui.Stack(new TextBlock { Text = state, Foreground = d.Removes ? Theme.DangerBrush : Theme.OkBrush, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Right },
-            new TextBlock { Text = $"{d.Confidence:0%} sure" + (reviewed.Contains(d.Id) ? " · ✓" : ""), Foreground = Theme.MutedBrush, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Right });
-        return Ui.Columns((badge, GridLength.Auto), (info, new GridLength(1, GridUnitType.Star)), (right, new GridLength(90)));
+            int speechCuts = n.Decisions.Count(d => IsSpeechCut(d) && d.Removes);
+            long removed = Math.Max(0, n.SourceDuration - take.Duration);
+            string saved = removed < Time.FromSeconds(60) ? Time.Short(removed) : Format(removed);
+            summary.Text = $"{saved} removed  ·  {speechCuts} retake or false-start {(speechCuts == 1 ? "cut" : "cuts")}";
+            position = sourcePosition is { } source ? take.Map.ToTimelineNearest(source) : Math.Min(position, take.Duration);
+        }
+        else position = 0;
+        PopulateList(Selected?.Id);
+        DrawMarkers();
+        UpdatePosition();
+        UpdateControls();
     }
 
-    CleanupDecision? Selected => list.SelectedIndex >= 0 && list.SelectedIndex < ordered.Count ? ordered[list.SelectedIndex] : null;
+    static bool IsSpeechCut(CleanupDecision d) => d.Kind is DecisionKind.Retake or DecisionKind.FalseStart;
+    static string Format(long ticks) => Time.Chapter(ticks);
+    static string Label(DecisionKind kind) => kind switch
+    {
+        DecisionKind.Retake => "Retake",
+        DecisionKind.FalseStart => "False start",
+        DecisionKind.AdLibKept => "Ad-lib",
+        DecisionKind.PossibleSpeechKept => "Possible speech",
+        DecisionKind.Breath => "Breath",
+        DecisionKind.MouthNoise => "Mouth noise",
+        _ => "Pause",
+    };
+
+    void SetView(bool showAll, string? select = null)
+    {
+        allDecisions = showAll;
+        PopulateList(select ?? Selected?.Id);
+    }
+
+    void PopulateList(string? select)
+    {
+        visible = s.P.Narration.Decisions.Where(d => allDecisions || IsSpeechCut(d)).OrderBy(d => d.Start).ToList();
+        list.Items.Clear();
+        foreach (var d in visible)
+        {
+            var label = Ui.Text(Label(d.Kind), 13, weight: FontWeights.SemiBold);
+            var context = Ui.Text(d.Context.Length == 0 ? d.Reason : d.Context, 13);
+            context.TextWrapping = TextWrapping.NoWrap;
+            context.TextTrimming = TextTrimming.CharacterEllipsis;
+            var state = Ui.Text(d.Removes ? "Cut" : d.IsCut ? "Restored" : "Kept", 12, true);
+            list.Items.Add(new ListBoxItem
+            {
+                Tag = d, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(8, 7, 8, 7),
+                Content = Ui.Columns((Ui.Text(Format(d.Start), 12, true), new GridLength(58)), (label, new GridLength(120)),
+                    (context, new GridLength(1, GridUnitType.Star)), (state, new GridLength(70))),
+            });
+        }
+        int selected = visible.FindIndex(d => d.Id == select);
+        list.SelectedIndex = selected >= 0 ? selected : visible.Count > 0 ? 0 : -1;
+        if (list.SelectedItem is { } item) list.ScrollIntoView(item);
+        review.Background = allDecisions ? Brushes.Transparent : Theme.AccentSoft;
+        all.Background = allDecisions ? Theme.AccentSoft : Brushes.Transparent;
+        UpdateDecision();
+    }
+
+    void UpdateDecision()
+    {
+        var d = Selected;
+        if (d is null)
+        {
+            details.Text = visible.Count > 0 ? "Select a decision to hear it in context."
+                : allDecisions ? "No cleanup decisions." : "No retakes or false starts to review.";
+            reason.Visibility = decisionActions.Visibility = Visibility.Collapsed;
+            return;
+        }
+        details.Text = d.Context.Length == 0 ? Label(d.Kind) : d.Context;
+        reason.Text = $"Original {Time.Timecode(d.Start)}  ·  {d.Reason}";
+        reason.Visibility = decisionActions.Visibility = Visibility.Visible;
+        toggle.Content = d.Removes ? "Restore audio" : d.IsCut ? "Reapply cut" : "Cut this audio";
+    }
+
+    void DrawMarkers()
+    {
+        markers.Children.Clear();
+        if (preview is not { Duration: > 0 } take || markers.ActualWidth < 12) return;
+        double width = markers.ActualWidth - 12;
+        var groups = take.Markers.GroupBy(mark => Math.Round(mark.Position / (double)take.Duration * width / 12));
+        foreach (var group in groups)
+        {
+            var items = group.ToList();
+            var first = items[0];
+            string name = items.Count == 1 ? $"{Label(first.Decision.Kind)} at {Format(first.Position)}" : $"{items.Count} cuts near {Format(first.Position)}";
+            var marker = new Button
+            {
+                Content = items.Count > 1 ? "+" : "│", Width = 12, MinWidth = 0, Height = 20, MinHeight = 0,
+                Padding = new Thickness(0), BorderThickness = new Thickness(0), Background = Brushes.Transparent,
+                Foreground = items.Any(item => IsSpeechCut(item.Decision)) ? Theme.AccentBrush : Theme.MutedBrush,
+                ToolTip = name,
+            };
+            AutomationProperties.SetName(marker, name);
+            marker.Click += (_, _) =>
+            {
+                int current = items.FindIndex(item => item.Decision.Id == Selected?.Id);
+                var pick = items[(current + 1) % items.Count];
+                SetView(allDecisions || !IsSpeechCut(pick.Decision), pick.Decision.Id);
+                Seek(pick.Position, false);
+            };
+            Canvas.SetLeft(marker, Math.Min(group.Key * 12, width));
+            markers.Children.Add(marker);
+        }
+    }
+
+    void UpdatePosition()
+    {
+        long duration = preview?.Duration ?? 0;
+        position = Math.Clamp(position, 0, duration);
+        updatingSeek = true;
+        seek.Maximum = duration;
+        seek.Value = position;
+        updatingSeek = false;
+        string label = $"{Format(position)} / {Format(duration)}";
+        if (time.Text != label) time.Text = label;
+        string text = preview?.PassageAt(position) ?? "";
+        if (passage.Text != text) passage.Text = text;
+    }
+
+    void UpdateControls()
+    {
+        bool ready = !Busy && preview is not null;
+        play.IsEnabled = seek.IsEnabled = ready && preview!.Duration > 0;
+        markers.IsEnabled = reviewPane.IsEnabled = ready;
+        cancel.IsEnabled = Busy;
+        if (ready && preview!.Duration == 0) playbackStatus.Text = "No playable audio remains. Restore a cut to hear it here.";
+    }
 
     public void Move(int delta)
     {
-        if (ordered.Count == 0) return;
-        if (Selected is { } d) reviewed.Add(d.Id);
-        list.SelectedIndex = Math.Clamp(list.SelectedIndex + delta, 0, ordered.Count - 1);
+        if (Busy || visible.Count == 0) return;
+        list.SelectedIndex = list.SelectedIndex < 0 && delta < 0 ? visible.Count - 1 : Math.Clamp(list.SelectedIndex + delta, 0, visible.Count - 1);
         list.ScrollIntoView(list.SelectedItem);
+        if (Selected is { } decision && preview is { } take) Seek(take.Map.ToTimelineNearest(decision.Start), false);
     }
 
     public void Toggle()
     {
-        if (Selected is not { } d) return;
-        var id = d.Id;
-        reviewed.Add(id);
-        s.Edit(d.Removes ? "Keep this part" : "Cut this part", p =>
+        if (Busy || Selected is not { } d) return;
+        s.Edit(d.Removes ? "Restore narration audio" : "Cut narration audio", p =>
         {
-            var dec = p.Narration.Decisions.First(x => x.Id == id);
-            dec.Applied = !dec.Applied;
+            var decision = p.Narration.Decisions.First(x => x.Id == d.Id);
+            decision.Applied = !decision.Applied;
             s.AfterNarrationChange(p);
         });
     }
 
-    public void AcceptRest()
+    public void TogglePlayback()
     {
-        foreach (var d in ordered) reviewed.Add(d.Id);
-        renderedRevision = -1;
-        Refresh();
-        s.Say("All decisions accepted.");
+        if (Busy || preview is not { Duration: > 0 } take) return;
+        if (playingTake) { StopPlayback(); return; }
+        StopPlayback();
+        if (position == take.Duration) position = 0;
+        StartPlayback(take, new(position, take.Duration), true, "");
     }
 
-    /// <summary>Plays ~1.5 s around the decision as recorded, then with the decision applied.</summary>
-    public void Audition()
+    void Seek(long target, bool resume)
     {
-        if (Selected is not { } d) return;
+        if (target == position && resume) return;
+        StopPlayback();
+        position = target;
+        UpdatePosition();
+        if (resume && !dragging && preview is { } take && position < take.Duration)
+            StartPlayback(take, new(position, take.Duration), true, "");
+    }
+
+    public void Audition() => Audition(false, compare: true);
+
+    void Audition(bool remove, bool compare = false)
+    {
+        if (Busy || Selected is not { } d) return;
+        StopPlayback();
+        var variant = new CleanPreview(s.P, d, remove);
+        var range = variant.Around(d);
+        if (compare)
+        {
+            var applied = new CleanPreview(s.P, d, true);
+            nextAudition = (applied, applied.Around(d));
+        }
+        if (range.Duration > 0)
+            StartPlayback(variant, range, false, remove ? "Playing cut" : "Playing original");
+        else if (nextAudition is { } next)
+        {
+            nextAudition = null;
+            StartPlayback(next.Preview, next.Range, false, "Playing cut");
+        }
+        else playbackStatus.Text = "There is no audio in this preview.";
+    }
+
+    void StartPlayback(CleanPreview take, TimeRange range, bool full, string label)
+    {
+        if (range.Duration <= 0)
+        {
+            playbackStatus.Text = "There is no audio in this preview.";
+            return;
+        }
+        var media = take.Audio.Media.FirstOrDefault();
+        playbackPath = media is null ? null : s.NarrationPreviewPathFor(media);
+        if (playbackPath is null)
+        {
+            nextAudition = null;
+            playbackStatus.Text = MediaStatus();
+            return;
+        }
+        mixer.Prepare(take.Audio, 0);
+        player.Play(mixer, range.Start, range.End);
+        if (!player.Playing)
+        {
+            StopPlayback();
+            playbackStatus.Text = "No playback device is available.";
+            return;
+        }
+        playbackEnd = range.End;
+        playingTake = full;
+        play.Content = full ? "Pause" : "Play cleaned narration";
+        playbackStatus.Text = label;
+    }
+
+    string MediaStatus()
+    {
         var media = s.P.FindMedia(s.P.Narration.MediaId);
-        var path = media is null ? null : s.AudioPathFor(media);
-        if (path is null) { s.Say("Audio is still being prepared."); return; }
-        reviewed.Add(d.Id);
-        using var source = new AudioSource(path);
-        long pad = Time.FromSeconds(1.5);
-        long a = Math.Max(0, d.Start - pad), b = d.End + pad;
-        float gain = (float)Gain.DbToLinear(s.P.Narration.GainDb);
-        var before = Read(source, a, b, gain);
-        var after = Read(source, a, d.Start, gain).Concat(Read(source, d.End, b, gain)).ToArray();
-        var gap = new float[(int)(Time.FromMs(450) * 2)];
-        bool cutNow = d.Removes;
-        // Always play "as recorded" first, then "cleaned".
-        var cleaned = cutNow ? after : before;
-        var recorded = cutNow ? before : after;
-        s.Stop();
-        s.Player.PlayBuffer([.. recorded, .. gap, .. cleaned]);
-        s.Say(cutNow ? "Playing: as recorded, then with this cut." : "Playing: with this part removed, then as kept.");
+        return media is null || (!File.Exists(media.Path) && !File.Exists(s.P.Narration.CleanPath))
+            ? "The narration recording is missing." : "Narration audio is still being prepared.";
     }
 
-    static float[] Read(AudioSource source, long a, long b, float gain)
+    public void Tick()
     {
-        if (b <= a) return [];
-        var buffer = new float[(b - a) * 2];
-        source.Read(a, buffer);
-        for (int i = 0; i < buffer.Length; i++) buffer[i] *= gain;
-        return buffer;
+        if (playbackEnd == 0) return;
+        if (!player.Playing) { StopPlayback(); return; }
+        if (player.Clock is not { } audible) return;
+        if (playingTake)
+        {
+            position = Math.Min(audible, playbackEnd);
+            UpdatePosition();
+        }
+        if (audible < playbackEnd) return;
+        var next = nextAudition;
+        StopPlayback();
+        if (next is { } queued) StartPlayback(queued.Preview, queued.Range, false, "Playing cut");
+    }
+
+    public void StopPlayback()
+    {
+        player.Stop();
+        mixer.Dispose();
+        playingTake = false;
+        playbackEnd = 0;
+        nextAudition = null;
+        play.Content = "Play cleaned narration";
+        playbackStatus.Text = "";
+    }
+
+    public void Dispose()
+    {
+        player.Dispose();
+        mixer.Dispose();
     }
 }

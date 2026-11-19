@@ -62,11 +62,11 @@ public static class Commands
         new("sub.customRegion", "Subtitles on in/out range", "Subtitles", "Alt+S"),
         new("sub.split", "Split caption", "Subtitles", "Ctrl+Shift+S"),
         new("sub.merge", "Merge caption with next", "Subtitles", "Ctrl+Shift+M"),
-        new("clean.audition", "Play before/after", "Clean", "Enter"),
+        new("clean.play", "Play / pause cleaned narration", "Clean", "Space"),
+        new("clean.audition", "Hear original, then cut", "Clean", "Enter"),
         new("clean.toggle", "Toggle decision", "Clean", "X"),
         new("clean.next", "Next decision", "Clean", "N"),
         new("clean.prev", "Previous decision", "Clean", "P"),
-        new("clean.acceptRest", "Accept remaining decisions", "Clean", "A"),
         new("record.toggle", "Record / stop", "Record", "Ctrl+R"),
         new("record.retake", "Mark retake", "Record", "R"),
     ];

@@ -24,7 +24,11 @@ public sealed class Player : IDisposable
                 owner.clipPos += Math.Max(0, n);
                 return count;
             }
-            owner.mixer?.Render(owner.cursor, span);
+            int samples = owner.endTick is { } end
+                ? (int)Math.Clamp(end - owner.cursor, 0, count / 2) * 2
+                : count;
+            if (samples > 0) owner.mixer?.Render(owner.cursor, span[..samples]);
+            span[samples..].Clear();
             owner.cursor += count / 2;
             return count;
         }
@@ -34,6 +38,7 @@ public sealed class Player : IDisposable
     Mixer? mixer;
     long cursor;
     long startTick;
+    long? endTick;
     float[]? clip;
     int clipPos;
 
@@ -41,12 +46,13 @@ public sealed class Player : IDisposable
     public event Action? Stopped;
 
     /// <summary>Starts mixer playback at a timeline position.</summary>
-    public void Play(Mixer m, long from)
+    public void Play(Mixer m, long from, long? until = null)
     {
         Stop();
         mixer = m;
         clip = null;
         cursor = startTick = from;
+        endTick = until;
         Start();
     }
 

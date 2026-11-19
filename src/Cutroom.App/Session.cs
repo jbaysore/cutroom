@@ -101,6 +101,7 @@ public sealed class Session : IDisposable
     void Replace(Document doc)
     {
         Stop();
+        CleanupCancel?.Cancel();
         SaveSafely();
         Doc = doc;
         Hook();
@@ -216,6 +217,16 @@ public sealed class Session : IDisposable
         return File.Exists(path) ? path : null;
     }
 
+    internal string? NarrationPreviewPathFor(MediaRef media)
+    {
+        if (P.Narration.CleanPath is { } clean && File.Exists(clean))
+        {
+            var path = Derivatives.AudioPath(FingerprintOf(clean));
+            return File.Exists(path) ? path : null;
+        }
+        return AudioPathFor(media);
+    }
+
     public string PreviewPathFor(MediaRef m) => Derivatives.PreviewPath(m);
 
     public byte[] PeaksFor(MediaRef m)
@@ -310,16 +321,22 @@ public sealed class Session : IDisposable
     public async Task RunCleanup(IProgress<CleanupStage> progress)
     {
         var media = P.FindMedia(P.Narration.MediaId) ?? throw new InvalidOperationException("Record or import a narration first.");
+        var document = Doc;
+        var script = P.Script;
         CleanupCancel = new CancellationTokenSource();
+        var token = CleanupCancel.Token;
         var settings = P.Narration.Settings;
         var marks = P.Narration.RetakeMarks.ToList();
         try
         {
-            var result = await Task.Run(() => CleanupEngine.Run(media, P.Script, marks, settings, Settings.WhisperModel, progress, CleanupCancel.Token));
+            var result = await Task.Run(() => CleanupEngine.Run(media, script, marks, settings, Settings.WhisperModel, progress, token));
+            token.ThrowIfCancellationRequested();
             await EnsureCleanAudio(result.CleanPath);
+            token.ThrowIfCancellationRequested();
+            if (document != Doc || P.Narration.MediaId != media.Id) return;
             ApplyCleanup(result);
         }
-        finally { CleanupCancel = null; }
+        finally { CleanupCancel.Dispose(); CleanupCancel = null; }
     }
 
     void ApplyCleanup(CleanupResult r)

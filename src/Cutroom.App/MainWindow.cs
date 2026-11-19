@@ -68,6 +68,7 @@ public sealed class MainWindow : Window
         Closed += (_, _) =>
         {
             CompositionTarget.Rendering -= OnFrame;
+            clean.Dispose();
             renderer.Dispose();
             Session.Dispose();
         };
@@ -172,6 +173,7 @@ public sealed class MainWindow : Window
 
     public void Show(Stage stage)
     {
+        if (Current == Stage.Clean && stage != Stage.Clean) clean.StopPlayback();
         if (stage != Stage.Edit) Session.Stop();
         Current = stage;
         record.Visibility = stage == Stage.Record ? Visibility.Visible : Visibility.Collapsed;
@@ -222,6 +224,7 @@ public sealed class MainWindow : Window
     void OnFrame(object? sender, EventArgs e)
     {
         Session.Tick();
+        if (Current == Stage.Clean) clean.Tick();
         if (Current == Stage.Edit || edit.PopoutOpen) renderer.Render();
     }
 
@@ -257,7 +260,7 @@ public sealed class MainWindow : Window
         {
             if (!mods.HasFlag(ModifierKeys.Control) || command.Id is "edit.undo" or "edit.redo") return;
         }
-        if (Keyboard.FocusedElement is ButtonBase && key is Key.Space or Key.Enter && command.Group is "General") return;
+        if (Keyboard.FocusedElement is ButtonBase && key is Key.Space or Key.Enter && command.Group is "General" or "Clean") return;
         e.Handled = true;
         Run(command.Id);
     }
@@ -321,11 +324,11 @@ public sealed class MainWindow : Window
             case "sub.customRegion": c.SubtitlesOnRange(); break;
             case "sub.split": c.SplitCaption(); break;
             case "sub.merge": c.MergeCaption(); break;
+            case "clean.play": clean.TogglePlayback(); break;
             case "clean.audition": clean.Audition(); break;
             case "clean.toggle": clean.Toggle(); break;
             case "clean.next": clean.Move(1); break;
             case "clean.prev": clean.Move(-1); break;
-            case "clean.acceptRest": clean.AcceptRest(); break;
             case "record.toggle": record.ToggleRecord(); break;
             case "record.retake": record.MarkRetake(); break;
         }
