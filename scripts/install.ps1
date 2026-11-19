@@ -2,26 +2,36 @@
 # Settings, projects, the library index and models live elsewhere and are never touched.
 param([string]$Destination = (Join-Path $env:LOCALAPPDATA 'Programs\Cutroom'), [switch]$NoShortcut)
 $ErrorActionPreference = 'Stop'
-$projectRoot = Split-Path $PSScriptRoot -Parent
-& (Join-Path $PSScriptRoot 'build.ps1') -SkipManaged
-$publish = Join-Path $projectRoot 'artifacts\publish'
-Remove-Item -Recurse -Force $publish -ErrorAction SilentlyContinue
-& dotnet publish (Join-Path $projectRoot 'src\Cutroom.App\Cutroom.App.csproj') -c Release -r win-x64 --self-contained true -o $publish -nologo -v q
-if ($LASTEXITCODE -ne 0) { throw 'Publish failed' }
-foreach ($required in @('Cutroom.exe', 'Cutroom.Engine.Native.dll', 'ffmpeg.exe', 'ffprobe.exe', 'whisper\whisper-cli.exe')) {
-    if (!(Test-Path -LiteralPath (Join-Path $publish $required))) { throw "Publish is missing $required" }
-}
-if (!(Test-Path -LiteralPath (Join-Path $publish 'whisper-vulkan\whisper-cli.exe'))) { Write-Warning 'GPU transcription is not included; cleanup will transcribe on the CPU.' }
+$Destination = [IO.Path]::GetFullPath($Destination)
+$publish = $Destination + '.manual-' + [Guid]::NewGuid().ToString('N')
+New-Item -ItemType Directory -Path (Split-Path $Destination -Parent) -Force | Out-Null
+$deploymentLock = [IO.File]::Open($Destination + '.update.lock', 'OpenOrCreate', 'ReadWrite', 'None')
 
-$exe = Join-Path $Destination 'Cutroom.exe'
-# Only a Cutroom running from the install folder is closed, and it saves on close.
-$running = @(Get-Process -Name Cutroom -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })
-foreach ($p in $running) {
-    [void]$p.CloseMainWindow()
-    if (!$p.WaitForExit(20000)) { throw 'Cutroom is still open; close it and run the installer again' }
+try {
+    & (Join-Path $PSScriptRoot 'publish.ps1') -Output $publish
+    $exe = Join-Path $Destination 'Cutroom.exe'
+    # Only a Cutroom running from the install folder is closed, and it saves on close.
+    $running = @(Get-Process -Name Cutroom -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })
+    foreach ($p in $running) {
+        [void]$p.CloseMainWindow()
+        if (!$p.WaitForExit(20000)) { throw 'Cutroom is still open; close it and run the installer again' }
+    }
+    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    $marker = Join-Path $Destination 'installed-commit.txt'
+    if (Test-Path -LiteralPath $marker -PathType Leaf) { Remove-Item -LiteralPath $marker }
+    Copy-Item -Path (Join-Path $publish '*') -Destination $Destination -Recurse -Force
 }
-New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-Copy-Item -Path (Join-Path $publish '*') -Destination $Destination -Recurse -Force
+finally {
+    try {
+        if (Test-Path -LiteralPath $publish) {
+            $stage = Get-Item -LiteralPath $publish -Force
+            if (!$stage.PSIsContainer -or $stage.Parent.FullName -ne (Split-Path $Destination -Parent) -or
+                ($stage.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "Unexpected staging directory: $publish" }
+            Remove-Item -LiteralPath $stage.FullName -Recurse -Force
+        }
+    }
+    finally { $deploymentLock.Dispose() }
+}
 
 if (!$NoShortcut) {
     $link = Join-Path ([Environment]::GetFolderPath('Programs')) 'Cutroom.lnk'

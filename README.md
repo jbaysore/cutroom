@@ -14,6 +14,8 @@ This fetches the pinned dependencies (FFmpeg, whisper.cpp, DeepFilterNet, fonts)
 
 The first cleanup downloads the speech models (about 1.8 GB, verified by sha256) to `%LOCALAPPDATA%\Cutroom\models`.
 
+Project Hub's **Restart** installs a newer commit from this PC's Cutroom `main` before starting the app. With the same commit already installed, it skips the build. Hub writes the update output to `logs/cutroom-build.log` in the Project Hub folder.
+
 ## Where things live
 
 - **Projects:** Create, open, and rename projects from the launch screen or the editor’s **Projects…** button. **Browse…** opens projects from other folders and adds them to the list. New projects default to `Documents\Cutroom\<name>\<name>.cutroom.json`. Recordings go in `narration\` and exports in `exports\`. Autosave keeps `.bak` copies.
