@@ -336,6 +336,17 @@ public class SubtitleTests
     }
 
     [Fact]
+    public void ScriptSentenceEndsBreakEvenWithoutPunctuation()
+    {
+        // Whisper often drops the period before a pause; the script's sentence ids still mark the boundary.
+        var words = Words("to use it on a Reinhardt Sleep cancels almost every ultimate");
+        for (int i = 0; i < words.Count; i++) words[i].Item1.SentenceId = i < 6 ? "s1" : "s2";
+        var caps = Subtitles.Chunk(words);
+        Assert.Contains(caps, c => c.Text.EndsWith("Reinhardt"));
+        Assert.StartsWith("Sleep", caps.First(c => c.Text.Contains("cancels")).Text);
+    }
+
+    [Fact]
     public void NumbersStayWithUnits()
     {
         var caps = Subtitles.Chunk(Words("It heals for exactly 250 health over two seconds which is a lot of healing for one ability."));

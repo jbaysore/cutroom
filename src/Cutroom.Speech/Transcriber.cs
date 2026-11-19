@@ -16,7 +16,11 @@ public static class Transcriber
     public static async Task<List<RawWord>> Transcribe(string wav16k, string modelPath, IReadOnlyList<string> vocabulary, IProgress<double>? progress, CancellationToken ct)
     {
         var outBase = Path.Combine(Path.GetTempPath(), "cutroom-whisper-" + Guid.NewGuid().ToString("N"));
-        var args = new List<string> { "-m", modelPath, "-f", wav16k, "-l", "en", "-ojf", "-of", outBase, "-t", Threads.ToString(),
+        // Whisper's timestamps drift on the last words when a recording stops right after speech; two seconds of
+        // trailing silence keeps them anchored.
+        var padded = outBase + "-padded.wav";
+        await Tools.Run(Tools.Ffmpeg, ["-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", wav16k, "-af", "apad=pad_dur=2", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", padded], ct).ConfigureAwait(false);
+        var args = new List<string> { "-m", modelPath, "-f", padded, "-l", "en", "-ojf", "-of", outBase, "-t", Threads.ToString(),
             "-bs", "2", "-bo", "2", "-mc", "64", "-pp", "-np" };
         if (vocabulary.Count > 0)
         {
@@ -36,6 +40,7 @@ public static class Transcriber
         finally
         {
             if (File.Exists(outBase + ".json")) File.Delete(outBase + ".json");
+            if (File.Exists(padded)) File.Delete(padded);
         }
     }
 

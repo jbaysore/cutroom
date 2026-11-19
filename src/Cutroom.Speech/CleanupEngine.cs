@@ -98,7 +98,7 @@ public static class CleanupEngine
 
         // 4. Transcribe.
         var vocabulary = script?.Vocabulary() ?? [];
-        var wordsCache = Cache($"{fp}-{settings.Denoiser}-{Path.GetFileNameWithoutExtension(whisperModel)}-{Hash(string.Join(",", vocabulary))}.words.json");
+        var wordsCache = Cache($"{fp}-{settings.Denoiser}-{Path.GetFileNameWithoutExtension(whisperModel)}-{Hash(string.Join(",", vocabulary))}-p2.words.json");
         List<RawWord> raw;
         if (File.Exists(wordsCache)) raw = JsonSerializer.Deserialize<List<RawWord>>(await File.ReadAllTextAsync(wordsCache, ct).ConfigureAwait(false))!;
         else
@@ -234,7 +234,10 @@ public static class CleanupEngine
                         if (aligned[k] is not { } a) continue;
                         double start = from + a.Start * 0.02, end = from + a.End * 0.02;
                         var w = words[i + k];
-                        if (Math.Abs(start - raw[i + k].Start) > .6 || end <= start) continue;
+                        // Forced alignment over the whole phrase is usually more exact than whisper's timestamps; only a
+                        // weak alignment far from whisper's guess is ignored.
+                        double limit = a.Score >= .5 ? 1.5 : .6;
+                        if (Math.Abs(start - raw[i + k].Start) > limit || end <= start) continue;
                         w.Start = Time.FromSeconds(start);
                         w.End = Time.FromSeconds(end);
                         w.Confidence = Math.Min(w.Confidence, .5 + a.Score / 2);

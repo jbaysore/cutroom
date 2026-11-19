@@ -55,12 +55,14 @@ public static class Subtitles
             if (i + 1 >= words.Count) break;
             var next = words[i + 1].Word;
             string trail = w.Word.Trailing;
-            bool sentenceEnd = trail.IndexOfAny(['.', '?', '!']) >= 0;
+            // The script knows sentence ends even when whisper dropped the period.
+            bool newSentence = w.Word.SentenceId is not null && next.SentenceId is not null && w.Word.SentenceId != next.SentenceId;
+            bool sentenceEnd = newSentence || trail.IndexOfAny(['.', '?', '!']) >= 0;
             bool clause = trail.IndexOfAny([',', ';', ':']) >= 0 || trail.Contains('—');
             bool keepTogether = IsNumber(w.Word.Text) && !IsNumber(next.Text)
                                 || names.Contains(w.Word.Text) && names.Contains(next.Text)
                                 || char.IsUpper(w.Word.Text.FirstOrDefault()) && char.IsUpper(next.Text.FirstOrDefault()) && trail.Length == 0 && current.Count > 1;
-            if (keepTogether) continue;
+            if (keepTogether && !newSentence) continue;
             if (sentenceEnd && current.Count >= 1 || clause && current.Count >= o.MinWords
                 || current.Count >= 5 && IsBreakWord(next.Text) && CharsAhead(words, i + 1, o.MaxWords - current.Count) + Derive.Join(current.Select(c => c.Word)).Length > o.MaxChars)
                 Flush();
