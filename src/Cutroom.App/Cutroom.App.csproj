@@ -9,6 +9,10 @@
     <ProjectReference Include="..\Cutroom.Engine\Cutroom.Engine.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Assets\Cutroom.ico" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
@@ -16,6 +20,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <AssemblyName>Cutroom</AssemblyName>
+    <ApplicationIcon>Assets\Cutroom.ico</ApplicationIcon>
     <RootNamespace>Cutroom.App</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
