@@ -18,9 +18,10 @@ public sealed class LibraryPanel : DockPanel
 {
     readonly Session s;
     readonly LibraryRole role;
-    readonly TextBox search = new() { Margin = new Thickness(0, 0, 0, 8) };
+    readonly TextBox search = new() { Name = "LibrarySearch", Margin = new Thickness(0, 0, 0, 8) };
+    readonly TextBlock partialNotice = Ui.Text("Partial matches", 12, true);
     readonly WrapPanel filters = new();
-    readonly ListBox results = new() { Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
+    readonly ListBox results = new() { Name = "LibraryResults", Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
     readonly DispatcherTimer debounce = new() { Interval = TimeSpan.FromMilliseconds(150) };
     readonly DispatcherTimer hover = new() { Interval = TimeSpan.FromMilliseconds(450) };
     AssetCategory? category;
@@ -59,15 +60,30 @@ public sealed class LibraryPanel : DockPanel
         add.Margin = new Thickness(0, 0, 0, 8);
         SetDock(add, Dock.Bottom);
         Children.Add(add);
+        partialNotice.Visibility = Visibility.Collapsed;
+        SetDock(partialNotice, Dock.Top);
+        Children.Add(partialNotice);
         Children.Add(results);
         results.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled);
 
         search.TextChanged += (_, _) => { debounce.Stop(); debounce.Start(); };
-        debounce.Tick += (_, _) => { debounce.Stop(); Refresh(); };
+        debounce.Tick += (_, _) => Refresh();
         search.PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Down && results.Items.Count > 0) { results.SelectedIndex = 0; (results.ItemContainerGenerator.ContainerFromIndex(0) as UIElement)?.Focus(); e.Handled = true; }
-            if (e.Key == Key.Enter && hits.Count > 0) { _ = Activate(hits[0]); e.Handled = true; }
+            if (e.Key is Key.Enter or Key.Down)
+            {
+                if (debounce.IsEnabled) Refresh();
+                e.Handled = true;
+                if (hits.Count == 0) return;
+                if (e.Key == Key.Enter) _ = Activate(hits[0]);
+                else
+                {
+                    results.SelectedIndex = 0;
+                    results.ScrollIntoView(results.Items[0]);
+                    results.UpdateLayout();
+                    (results.ItemContainerGenerator.ContainerFromIndex(0) as UIElement)?.Focus();
+                }
+            }
             if (e.Key == Key.Escape) { Keyboard.ClearFocus(); e.Handled = true; }
         };
         results.KeyDown += (_, e) =>
@@ -89,7 +105,9 @@ public sealed class LibraryPanel : DockPanel
 
     void Refresh()
     {
-        hits = s.Library.Search(search.Text, role, category, favorites, recent).Take(150).ToList();
+        debounce.Stop();
+        hits = s.Library.Search(search.Text, out bool partialMatches, role, category, favorites, recent, limit: 150).ToList();
+        partialNotice.Visibility = partialMatches ? Visibility.Visible : Visibility.Collapsed;
         results.Items.Clear();
         if (hits.Count == 0)
         {

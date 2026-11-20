@@ -409,7 +409,7 @@ public sealed class EditCommands(Session s)
         if (slot?.Suggestion is not { } sug) return;
         switch (sug.Kind)
         {
-            case "clip": search(sug.ClipDescription ?? slot.Text); break;
+            case "clip": search(sug.ClipDescription ?? slot.Text); return;
             case "textCard": AddCard(CardTemplateKind.Blur, sug.CardText); break;
             case "backgroundCard": AddCard(CardTemplateKind.Background, sug.CardText); break;
             case "sectionHeader": AddCard(CardTemplateKind.SectionHeader, slot.SectionTitle); break;

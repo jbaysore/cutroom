@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Cutroom.Core;
 using Microsoft.Data.Sqlite;
@@ -247,9 +248,13 @@ public sealed class LibraryIndex : IDisposable
     /// everything in the role/category (favorites and recents first).
     /// </summary>
     public IReadOnlyList<SearchHit> Search(string query, LibraryRole? role = null, AssetCategory? category = null, bool favoritesOnly = false, bool recentOnly = false, int limit = 200)
+        => Search(query, out _, role, category, favoritesOnly, recentOnly, limit);
+
+    public IReadOnlyList<SearchHit> Search(string query, out bool partialMatches, LibraryRole? role = null, AssetCategory? category = null, bool favoritesOnly = false, bool recentOnly = false, int limit = 200)
     {
         var tags = Regex.Matches(query, @"#([\w\-]+)").Select(m => NormalizeTag(m.Groups[1].Value)).ToList();
-        var words = Regex.Matches(Regex.Replace(query, @"#[\w\-]+", " "), @"[\p{L}\p{N}]+").Select(m => m.Value.ToLowerInvariant()).ToList();
+        var words = Regex.Matches(Regex.Replace(query, @"#[\w\-]+", " "), @"[\p{L}\p{N}]+")
+            .Select(m => m.Value.ToLowerInvariant()).Distinct().Select(w => $"\"{w}\"*").ToList();
         var filters = new List<string>();
         var args = new List<(string, object?)>();
         if (role is not null) { filters.Add("items.role=$role"); args.Add(("$role", role.ToString())); }
@@ -261,13 +266,34 @@ public sealed class LibraryIndex : IDisposable
             filters.Add($"EXISTS (SELECT 1 FROM tags t WHERE t.item_id=items.id AND (t.moment_id IS NULL OR t.moment_id IS search.moment_id) AND t.tag=$t{i})");
             args.Add(($"$t{i}", tags[i]));
         }
-        string match = words.Count > 0 ? string.Join(" ", words.Select(w => $"\"{w}\"*")) : "";
+        string where = words.Count > 0 ? "search MATCH $q" : "1=1";
+        if (filters.Count > 0) where += " AND " + string.Join(" AND ", filters);
         string order = recentOnly ? "items.last_used DESC" : words.Count > 0 ? "bm25(search), items.favorite DESC" : "items.favorite DESC, items.last_used DESC, items.path";
-        string sql = $"SELECT {ItemColumns}, search.moment_id FROM search JOIN items ON items.id = search.item_id " +
-                     $"WHERE {(match.Length > 0 ? "search MATCH $q" : "1=1")} {(filters.Count > 0 ? " AND " + string.Join(" AND ", filters) : "")} " +
-                     $"ORDER BY {order} LIMIT {limit}";
-        if (match.Length > 0) args.Add(("$q", match));
-        var rows = Query(sql, r => (Item: ReadItem(r), MomentId: r.IsDBNull(12) ? (long?)null : r.GetInt64(12)), args.ToArray());
+        string select = $"SELECT {ItemColumns}, search.moment_id FROM search JOIN items ON items.id = search.item_id";
+        args.Add(("$limit", limit));
+        List<(LibraryItem Item, long? MomentId)> ReadRows(string sql) =>
+            Query(sql, r => (ReadItem(r), r.IsDBNull(12) ? (long?)null : r.GetInt64(12)), args.ToArray());
+
+        if (words.Count > 0) args.Add(("$q", string.Join(" ", words)));
+        var rows = ReadRows($"{select} WHERE {where} ORDER BY {order} LIMIT $limit");
+        partialMatches = false;
+        if (rows.Count == 0 && words.Count > 1 && role == LibraryRole.Footage)
+        {
+            args[^1] = ("$q", string.Join(" OR ", words));
+            args.Add(("$terms", JsonSerializer.Serialize(words)));
+            rows = ReadRows($"""
+                WITH matches AS (
+                    SELECT search.rowid AS id, count(*) AS word_count
+                    FROM json_each($terms) AS term CROSS JOIN search
+                    WHERE search MATCH term.value
+                    GROUP BY search.rowid
+                )
+                {select} JOIN matches ON matches.id = search.rowid
+                WHERE {where}
+                ORDER BY matches.word_count DESC, {order}, search.rowid LIMIT $limit
+                """);
+            partialMatches = rows.Count > 0;
+        }
         var hits = new List<SearchHit>();
         var seenItems = new HashSet<long>();
         foreach (var (item, momentId) in rows)

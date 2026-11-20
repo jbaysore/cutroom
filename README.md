@@ -25,11 +25,11 @@ Project Hub's **Restart** installs a newer commit from this PC's Cutroom `main` 
 ## Workflow
 
 1. **Record** (`Ctrl+1`): paste your script from Google Docs (headings become sections and chapters), then record. You can also import an OBS recording.
-2. **Clean** (`Ctrl+2`): one button removes dead air, breaths, mouth noises and retakes. Review the list, least-certain decisions first:
-   - `Enter` plays before and after
-   - `X` flips a decision
-   - `N` / `P` move through the list
-   - `A` accepts the rest
+2. **Clean** (`Ctrl+2`). Run **Clean narration**, then use **Play cleaned narration** (`Space`) to hear how it flows. **Review cuts** lists retakes and false starts in chronological order. Open **All decisions** for the full list, or **Show script** to read along.
+   - `Enter` plays the selected passage with the original audio, then with the cut applied.
+   - `X` toggles whether the selected audio is cut.
+   - `N` / `P` move to the next or previous decision.
+   - Choose **Continue to Edit** when the narration sounds right.
 3. **Edit** (`Ctrl+3`): fill the script slots from your footage library (`F`), add blur or notebook cards (`C` / `Shift+C`), zooms (`Z`), freeze + outline (`Shift+O`) and transitions (`Ctrl+T`). Change properties in the Inspector. All shortcuts are listed and rebindable under **Settings → Shortcuts**.
 4. **Export** (`Ctrl+4`): exports YouTube 1080p60 H.264 at −14 LUFS, with captions (.srt), chapters, and AI-drafted titles, description and tags.
 

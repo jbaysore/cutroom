@@ -17,6 +17,7 @@ public static class Time
     public static double ToSeconds(long ticks) => ticks / (double)Rate;
     public static long SnapToFrame(long ticks) => (long)Math.Round(ticks / (double)Frame) * Frame;
     public static long FloorFrame(long ticks) => ticks >= 0 ? ticks / Frame * Frame : -((-ticks + Frame - 1) / Frame * Frame);
+    public static long CeilingFrame(long ticks) => -FloorFrame(-ticks);
 
     /// <summary>HH:MM:SS:FF at 60 fps.</summary>
     public static string Timecode(long ticks)

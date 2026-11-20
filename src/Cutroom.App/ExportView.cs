@@ -21,6 +21,7 @@ public sealed class ExportView : Grid
     readonly StackPanel package = new();
     CancellationTokenSource? cancel;
     string? lastOutput;
+    public event Action<long>? GoToVisualGap;
 
     public ExportView(Session session)
     {
@@ -65,10 +66,16 @@ public sealed class ExportView : Grid
     {
         if (fileName.Text.Length == 0 || lastOutput is null) fileName.Text = Derive.SafeFileName(s.P.Name) + ".mp4";
         issues.Children.Clear();
-        var found = Exporter.PreFlight(s.P, s.Settings);
+        var found = Exporter.PreFlight(s.P, s.Settings, out var firstVisualGap);
         if (found.Count == 0) { issues.Children.Add(Ui.Text("✓ Ready to export.", 12)); return; }
         issues.Children.Add(Ui.Text("Before you export:", 12, true));
         foreach (var i in found) issues.Children.Add(new TextBlock { Text = "• " + i, Foreground = Theme.B(Theme.Sub), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 2) });
+        if (firstVisualGap is { } frame)
+        {
+            var go = Ui.Button("Go to first gap", () => GoToVisualGap?.Invoke(frame));
+            go.Name = "GoToVisualGap";
+            issues.Children.Add(Ui.Row(go));
+        }
         issues.Children.Add(new Border { Height = 8 });
     }
 

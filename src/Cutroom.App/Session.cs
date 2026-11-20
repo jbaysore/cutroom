@@ -436,6 +436,15 @@ public sealed class Session : IDisposable
         if (was) Play();
     }
 
+    public void SeekTimeline(long t)
+    {
+        Stop();
+        bool wasShowingSource = ShowingSource;
+        ShowingSource = false;
+        Seek(t);
+        if (wasShowingSource) SourceChanged?.Invoke();
+    }
+
     public void Step(long delta)
     {
         if (ShowingSource && Source is not null) Seek(SourcePosition + delta);

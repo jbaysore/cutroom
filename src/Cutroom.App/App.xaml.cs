@@ -1,10 +1,12 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using System.Net.Sockets;
 using Cutroom.Core;
+using Cutroom.Library;
 
 namespace Cutroom.App;
 
@@ -112,7 +114,11 @@ public partial class App : Application
                     await Capture(window, Path.Combine(outDir, $"{label}-{stage}.png"));
                 }
             }
-            if (next is not null) CheckProjectSwitch(window, next);
+            if (next is not null)
+            {
+                await CheckEditingWorkflow(window, Path.Combine(outDir, "projects.png"));
+                CheckProjectSwitch(window, next);
+            }
             window.Close();
         }
         catch (Exception ex)
@@ -121,6 +127,95 @@ public partial class App : Application
             code = 1;
         }
         Shutdown(code);
+    }
+
+    static async Task CheckEditingWorkflow(MainWindow window, string sampleImage)
+    {
+        static T Find<T>(DependencyObject root, string name) where T : FrameworkElement =>
+            (T)LogicalTreeHelper.FindLogicalNode(root, name);
+
+        static void Press(FrameworkElement control, Key key) =>
+            control.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(control)!, 0, key)
+            { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+
+        static void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        var session = window.Session;
+        window.Show(Stage.Edit);
+        var edit = (EditView)LogicalTreeHelper.FindLogicalNode(window, "EditStage");
+        foreach (var (panel, role, tab) in new[]
+        {
+            (edit.Footage, LibraryRole.Footage, 0),
+            (edit.Assets, LibraryRole.Asset, 1)
+        })
+        {
+            async Task<MediaRef> Add(string name)
+            {
+                string path = Path.Combine(session.ProjectFolder, $"{name}-{role}.png");
+                File.Copy(sampleImage, path);
+                await session.Library.AddOrUpdate(path, role);
+                return await session.Import(path);
+            }
+
+            await Add("oldquery");
+            var destination = await Add("newquery");
+            edit.ShowTab(tab);
+            window.UpdateLayout();
+            var search = Find<TextBox>(panel, "LibrarySearch");
+            var results = Find<ListBox>(panel, "LibraryResults");
+            search.Text = "oldquery";
+            Press(search, Key.Down);
+            var sourceBefore = session.Source;
+            search.Text = "missingquery";
+            Press(search, Key.Enter);
+            if (results.SelectedIndex != -1 || session.Source != sourceBefore || session.P.Track(TrackRole.Footage).Clips.Count > 0)
+                throw new InvalidOperationException("Library Enter reused a result from the old query.");
+            search.Text = "newquery";
+            Press(search, Key.Down);
+            if (results.SelectedIndex != 0)
+                throw new InvalidOperationException($"{role} library Down did not select the new query result.");
+            search.Text = "oldquery";
+            Press(search, Key.Down);
+            search.Text = "newquery";
+            Press(search, Key.Enter);
+            if (role == LibraryRole.Footage ? session.Source?.Id != destination.Id
+                : session.P.Track(TrackRole.Footage).At(0)?.MediaId != destination.Id)
+                throw new InvalidOperationException("Library Enter did not activate the new query result.");
+            session.SeekTimeline(0);
+        }
+
+        var region = new SubtitleRegion { Start = 0, End = Time.FromSeconds(3) };
+        session.Edit("Smoke captions and gaps", project =>
+        {
+            project.Slots.Add(new Slot { Start = 0, End = Time.FromSeconds(5) });
+            project.Track(TrackRole.Narration).Clips.Add(new Clip { Duration = Time.FromSeconds(5) });
+            project.SubtitleRegions.Add(region);
+            project.Captions.Add(new Caption { Text = "First", FixedStart = 0, FixedEnd = Time.FromSeconds(1) });
+            project.Captions.Add(new Caption { Text = "Second", FixedStart = Time.FromSeconds(1), FixedEnd = Time.FromSeconds(2) });
+        });
+        window.Show(Stage.Export);
+        session.ShowingSource = true;
+        Click(Find<Button>(window, "GoToVisualGap"));
+        if (window.Current != Stage.Edit || session.ShowingSource || session.Playhead != Time.FromSeconds(4))
+            throw new InvalidOperationException("Export did not jump to the first uncovered frame.");
+        session.Seek(0);
+        session.SelectRegion(region.Id);
+        window.UpdateLayout();
+        var caption = Find<TextBox>(edit.Inspector, "CaptionText");
+        caption.Text = "First corrected";
+        Press(caption, Key.Enter);
+        if (caption.Text != "Second" || session.Playhead != Time.FromSeconds(1) || session.P.Captions[0].Text != "First corrected")
+            throw new InvalidOperationException("Caption Enter did not save and move forward.");
+        caption.Text = "Second corrected";
+        Press(caption, Key.Enter);
+        if (session.P.Captions[1].Text != "Second corrected" || session.Playhead != Time.FromSeconds(1))
+            throw new InvalidOperationException("Caption Enter did not save at the region boundary.");
+        Click(Find<Button>(edit.Inspector, "PreviousCaption"));
+        if (caption.Text != "First corrected" || session.Playhead != 0)
+            throw new InvalidOperationException("Previous caption did not return to the first caption.");
+        session.Undo();
+        if (session.P.Captions[0].Text != "First corrected" || session.P.Captions[1].Text != "Second")
+            throw new InvalidOperationException("Undo did not revert just the last caption edit.");
     }
 
     static void CheckProjectSwitch(MainWindow window, Document next)

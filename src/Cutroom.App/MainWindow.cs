@@ -39,10 +39,15 @@ public sealed class MainWindow : Window
         renderer = new PreviewRenderer(Session);
         record = new RecordView(Session);
         clean = new CleanView(Session);
-        edit = new EditView(Session, renderer);
+        edit = new EditView(Session, renderer) { Name = "EditStage" };
         export = new ExportView(Session);
         record.GoToClean += () => Show(Stage.Clean);
         clean.GoToEdit += () => Show(Stage.Edit);
+        export.GoToVisualGap += frame =>
+        {
+            Show(Stage.Edit);
+            Session.SeekTimeline(frame);
+        };
 
         var content = new Grid { Margin = new Thickness(10, 0, 10, 10) };
         foreach (var v in new FrameworkElement[] { record, clean, edit, export }) content.Children.Add(v);
@@ -273,7 +278,8 @@ public sealed class MainWindow : Window
         var command = candidates.FirstOrDefault(Allowed);
         if (command is null) return;
         // Typing in a text box keeps its keys, except Ctrl shortcuts that aren't text editing.
-        if (Keyboard.FocusedElement is TextBox or PasswordBox or ComboBox { IsEditable: true })
+        if (e.OriginalSource is TextBox or PasswordBox or ComboBox { IsEditable: true } ||
+            Keyboard.FocusedElement is TextBox or PasswordBox or ComboBox { IsEditable: true })
         {
             if (!mods.HasFlag(ModifierKeys.Control) || command.Id is "edit.undo" or "edit.redo") return;
         }

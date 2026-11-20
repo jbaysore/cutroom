@@ -13,6 +13,34 @@ public sealed class SharedCache { public const string Name = "Shared Tools.Cache
 public class ExportTests
 {
     [Fact]
+    public void PreflightFindsPartialGapsAtOutputFramesAcrossScriptSlots()
+    {
+        var p = Project.CreateDefault("Coverage");
+        long frame = Time.Frame;
+        p.Slots.Add(new Slot { Start = 0, End = 10 * frame });
+        p.Slots.Add(new Slot { Start = 10 * frame, End = 15 * frame });
+        var footage = p.Track(TrackRole.Footage);
+        footage.Clips.Add(new Clip { Start = 0, Duration = 3 * frame });
+        footage.Clips.Add(new Clip { Start = 2 * frame, Duration = 3 * frame - 1 });
+        footage.Clips.Add(new Clip { Start = 5 * frame, Duration = 4 * frame });
+        var cards = p.Track(TrackRole.Cards);
+        cards.Clips.Add(new Clip { Start = 9 * frame, Duration = 2 * frame, Card = new CardData() });
+        p.Track(TrackRole.Narration).Clips.Add(new Clip { Duration = 15 * frame });
+
+        var warnings = Exporter.PreFlight(p, new AppSettings(), out var firstGap);
+        Assert.Equal(11 * frame, firstGap);
+        Assert.Contains(warnings, message => message.StartsWith("1 visual gap "));
+
+        cards.Muted = true;
+        Exporter.PreFlight(p, new AppSettings(), out firstGap);
+        Assert.Equal(9 * frame, firstGap);
+
+        footage.Muted = true;
+        Exporter.PreFlight(p, new AppSettings(), out firstGap);
+        Assert.Equal(0L, firstGap);
+    }
+
+    [Fact]
     public async Task ExportsH264At60fpsWithLoudnessTarget()
     {
         var dir = Directory.CreateTempSubdirectory("cutroom-export-test").FullName;

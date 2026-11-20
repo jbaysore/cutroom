@@ -18,6 +18,8 @@ public sealed class InspectorPanel : ScrollViewer
     string? builtFor;
     int builtRevision = -1;
     string? focusEffect;
+    Action? refreshCaption;
+    bool committingCaption;
 
     public InspectorPanel(Session session, EditCommands commands)
     {
@@ -27,6 +29,7 @@ public sealed class InspectorPanel : ScrollViewer
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         s.SelectionChanged += () => Rebuild(force: true);
         s.ProjectChanged += () => Rebuild(force: false);
+        s.PlayheadChanged += () => { if (!s.Playing) refreshCaption?.Invoke(); };
         s.Inspector = this;
         Loaded += (_, _) => Rebuild(true);
     }
@@ -43,9 +46,10 @@ public sealed class InspectorPanel : ScrollViewer
     void Rebuild(bool force)
     {
         string key = (s.SelectedClipId ?? "") + "|" + (s.SelectedRegionId ?? "") + "|" + (s.SelectedTrackId ?? "");
-        if (!force && key == builtFor && (builtRevision == s.Doc.Revision || Keyboard.FocusedElement is TextBox)) return;
+        if (!force && key == builtFor && (builtRevision == s.Doc.Revision || committingCaption || Keyboard.FocusedElement is TextBox)) return;
         builtFor = key;
         builtRevision = s.Doc.Revision;
+        refreshCaption = null;
         body.Children.Clear();
         if (s.SelectedClip is { } clip)
         {
@@ -334,13 +338,81 @@ public sealed class InspectorPanel : ScrollViewer
     void CaptionEditor(SubtitleRegion region)
     {
         Title("Caption at playhead");
-        var timings = Subtitles.Timings(s.P);
-        var current = timings.FirstOrDefault(c => s.Playhead >= c.Start && s.Playhead < c.End) ?? timings.FirstOrDefault(c => c.Start >= region.Start && c.Start >= s.Playhead);
-        if (current is null) { Note("No caption here."); return; }
-        var id = current.Caption.Id;
-        var box = new TextBox { Text = current.Caption.Text, Margin = new Thickness(0, 0, 0, 8) };
-        box.LostFocus += (_, _) => { if (box.Text != current.Caption.Text) s.Edit("Edit caption", p => p.Captions.First(c => c.Id == id).Text = box.Text); };
+        var timings = Subtitles.Timings(s.P).Where(c => c.Start < region.End && c.End > region.Start).ToList();
+        if (timings.Count == 0) { Note("No captions in this region."); return; }
+        var document = s.Doc;
+        int index = -1;
+        bool navigating = false;
+        var box = new TextBox { Name = "CaptionText", Margin = new Thickness(0, 0, 0, 8), ToolTip = "Enter saves and moves to the next caption. Shift+Enter moves to the previous caption." };
+        var previous = Ui.Button("Previous caption", () => Navigate(-1));
+        previous.Name = "PreviousCaption";
+        var next = Ui.Button("Save & next caption", () => Navigate(1));
+
+        void Commit()
+        {
+            if (index < 0 || s.Doc != document) return;
+            var id = timings[index].Caption.Id;
+            var caption = s.P.Captions.FirstOrDefault(c => c.Id == id);
+            if (caption is null || caption.Text == box.Text) return;
+            committingCaption = true;
+            try
+            {
+                s.Edit("Edit caption", _ => caption.Text = box.Text);
+                builtRevision = s.Doc.Revision;
+            }
+            finally { committingCaption = false; }
+        }
+
+        void Display(int target)
+        {
+            if (index == target) return;
+            index = target;
+            var id = timings[index].Caption.Id;
+            box.Text = s.P.Captions.FirstOrDefault(c => c.Id == id)?.Text ?? timings[index].Caption.Text;
+        }
+
+        void FollowPlayhead()
+        {
+            if (navigating || box.IsKeyboardFocusWithin) return;
+            int target = timings.FindIndex(c => c.End > s.Playhead);
+            Display(target >= 0 ? target : timings.Count - 1);
+        }
+
+        void Navigate(int direction)
+        {
+            Commit();
+            int target = index + direction;
+            if (target < 0 || target >= timings.Count)
+            {
+                s.Say(direction > 0 ? "Last caption in this region." : "First caption in this region.");
+                box.Focus();
+                return;
+            }
+            navigating = true;
+            try
+            {
+                long start = Math.Max(timings[target].Start, region.Start);
+                long firstFrame = Time.CeilingFrame(start);
+                long end = Math.Min(timings[target].End, region.End);
+                s.SeekTimeline(firstFrame < end ? firstFrame : start);
+                Display(target);
+                box.Focus();
+                box.SelectAll();
+            }
+            finally { navigating = false; }
+        }
+
+        box.LostKeyboardFocus += (_, _) => Commit();
+        box.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Enter || Keyboard.Modifiers is not (ModifierKeys.None or ModifierKeys.Shift)) return;
+            e.Handled = true;
+            Navigate(Keyboard.Modifiers == ModifierKeys.Shift ? -1 : 1);
+        };
+        refreshCaption = FollowPlayhead;
+        FollowPlayhead();
         Add(box);
+        Add(Ui.Row(previous, next));
         Add(Ui.Row(Ui.Button("Split at playhead", cmds.SplitCaption, "sub.split"), Ui.Button("Merge with next", cmds.MergeCaption, "sub.merge")));
     }
 

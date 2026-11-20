@@ -21,16 +21,70 @@ public static class Exporter
 
     /// <summary>Problems worth knowing before a long export.</summary>
     public static List<string> PreFlight(Project p, AppSettings settings)
+        => PreFlight(p, settings, out _);
+
+    public static List<string> PreFlight(Project p, AppSettings settings, out long? firstVisualGap)
     {
         var issues = new List<string>();
         foreach (var m in p.Media.Where(m => p.AllClips.Any(c => c.MediaId == m.Id || c.Card?.ContentMediaId == m.Id)))
             if (!File.Exists(m.Path)) issues.Add($"Missing media: {m.Path}");
-        int empty = p.Slots.Count(s => Derive.StatusOf(p, s) == SlotStatus.Empty);
-        if (empty > 0) issues.Add($"{empty} script slot{(empty == 1 ? " has" : "s have")} no footage or card yet.");
+        var gaps = FindVisualGaps(p);
+        firstVisualGap = gaps.First;
+        if (firstVisualGap is { } first)
+            issues.Add($"{gaps.Count} visual {(gaps.Count == 1 ? "gap" : "gaps")} with no footage or card. First at {Time.Timecode(first)}.");
         foreach (var r in p.SubtitleRegions.Where(r => settings.SubtitlePresets.All(x => x.Id != r.PresetId)))
             issues.Add($"Subtitle region \"{r.Label}\" uses a preset that no longer exists (the default will be used).");
         if (p.Duration <= 0) issues.Add("The timeline is empty.");
         return issues;
+    }
+
+    static (int Count, long? First) FindVisualGaps(Project p)
+    {
+        long duration = Time.SnapToFrame(p.Duration);
+        var changes = new SortedDictionary<long, (int Slots, int Visuals)>();
+
+        void AddChange(long frame, int slots, int visuals)
+        {
+            var previous = changes.GetValueOrDefault(frame);
+            changes[frame] = (previous.Slots + slots, previous.Visuals + visuals);
+        }
+
+        void AddRange(long start, long end, int slots, int visuals)
+        {
+            // The renderer samples at frame boundaries. Round both ends up for a half-open range.
+            start = Math.Clamp(Time.CeilingFrame(start), 0, duration);
+            end = Math.Clamp(Time.CeilingFrame(end), 0, duration);
+            if (start >= end) return;
+            AddChange(start, slots, visuals);
+            AddChange(end, -slots, -visuals);
+        }
+
+        foreach (var slot in p.Slots) AddRange(slot.Start, slot.End, 1, 0);
+        var footage = p.Track(TrackRole.Footage);
+        if (!footage.Muted)
+            foreach (var clip in footage.Clips)
+                AddRange(clip.Start, clip.End, 0, 1);
+        var cards = p.Track(TrackRole.Cards);
+        if (!cards.Muted)
+            foreach (var clip in cards.Clips.Where(c => c.Card is not null))
+                AddRange(clip.Start, clip.End, 0, 1);
+
+        int activeSlots = 0, activeVisuals = 0, count = 0;
+        long? first = null;
+        bool inGap = false;
+        foreach (var (frame, change) in changes)
+        {
+            activeSlots += change.Slots;
+            activeVisuals += change.Visuals;
+            bool gap = activeSlots > 0 && activeVisuals == 0;
+            if (gap && !inGap)
+            {
+                count++;
+                first ??= frame;
+            }
+            inGap = gap;
+        }
+        return (count, first);
     }
 
     public static async Task<ExportResult> Run(Project p, AppSettings settings, string output, Func<MediaRef, string?> audioPathFor,
