@@ -24,6 +24,8 @@ public sealed class TimelineView : FrameworkElement
     DragMode drag;
     Clip? dragClip;
     Track? dragTrack;
+    SubtitleRegion? dragRegion;
+    long subtitleEdge;
     double dragStartX;
     long dragDelta;
     long dragOriginal;
@@ -48,7 +50,10 @@ public sealed class TimelineView : FrameworkElement
 
     double RowHeight => Math.Max(22, (ActualHeight - RulerHeight) / Math.Max(1, Rows.Count));
     double X(long t) => Header + (Time.ToSeconds(t) - scrollSeconds) * pxPerSecond;
-    long T(double x) => Time.FromSeconds(Math.Max(0, (x - Header) / pxPerSecond + scrollSeconds));
+    long PointerTime(double x) => Time.FromSeconds((x - Header) / pxPerSecond + scrollSeconds);
+    long T(double x) => Math.Max(0, PointerTime(x));
+    // Whole-video regions can extend past the current edit so they cover footage added later.
+    static long SubtitleEnd(SubtitleRegion region, long duration) => Math.Min(region.End, Math.Max(region.Start, duration));
     double DpiScale => VisualTreeHelper.GetDpi(this).PixelsPerDip;
 
     public void Zoom(double factor, double? aroundX = null)
@@ -153,12 +158,26 @@ public sealed class TimelineView : FrameworkElement
     void DrawSubtitles(DrawingContext dc, Project p, double y, double rowH)
     {
         var dash = new Pen(Theme.B(Theme.Sub), 1) { DashStyle = DashStyles.Dash };
+        long duration = p.Duration;
         foreach (var r in p.SubtitleRegions)
         {
-            var rect = new Rect(X(r.Start), y + 3, Math.Max(2, X(r.End) - X(r.Start)), rowH - 6);
+            long start = r.Start, end = SubtitleEnd(r, duration);
+            if (r == dragRegion)
+            {
+                if (drag == DragMode.TrimStart) start = subtitleEdge;
+                else end = subtitleEdge;
+            }
+            double a = X(start), b = X(end);
+            if (b < Header || a > ActualWidth) continue;
+            var rect = new Rect(a, y + 3, Math.Max(2, b - a), rowH - 6);
             dc.DrawRoundedRectangle(Theme.B(Theme.Sub, (byte)(s.SelectedRegionId == r.Id ? 70 : 28)), dash, rect, 6, 6);
+            double grip = Math.Min(EdgeGrab / 2, rect.Width / 2);
+            dc.DrawRectangle(dash.Brush, null, new Rect(rect.Left, y + 7, grip, rowH - 14));
+            dc.DrawRectangle(dash.Brush, null, new Rect(rect.Right - grip, y + 7, grip, rowH - 14));
             var preset = s.Settings.Preset(r.PresetId);
+            dc.PushClip(new RectangleGeometry(rect));
             dc.DrawText(Label($"Subtitles · {r.Label} · {preset.Name}", 10, Theme.B(Theme.Sub)), new Point(rect.X + 6, y + 6));
+            dc.Pop();
         }
         if (pxPerSecond >= 25)
         {
@@ -250,6 +269,31 @@ public sealed class TimelineView : FrameworkElement
 
     // ---------- Interaction ----------
 
+    (SubtitleRegion? Region, DragMode Mode) HitSubtitle(double x)
+    {
+        if (x < Header) return (null, DragMode.None);
+        long t = T(x), duration = s.P.Duration;
+        SubtitleRegion? body = null, edge = null;
+        var mode = DragMode.None;
+        double nearest = EdgeGrab;
+        foreach (var region in s.P.SubtitleRegions)
+        {
+            long end = SubtitleEnd(region, duration);
+            bool inside = t >= region.Start && t < end;
+            if (inside) body ??= region;
+            if (duration <= region.Start) continue;
+            double a = X(region.Start), b = X(end);
+            double startDistance = a >= Header && end > region.Start ? Math.Abs(a - x) : double.PositiveInfinity;
+            double endDistance = b >= Header ? Math.Abs(b - x) : double.PositiveInfinity;
+            double distance = Math.Min(startDistance, endDistance);
+            if (distance >= EdgeGrab || distance > nearest || distance == nearest && !inside) continue;
+            nearest = distance;
+            edge = region;
+            mode = startDistance < endDistance ? DragMode.TrimStart : DragMode.TrimEnd;
+        }
+        return edge is null ? (body, DragMode.None) : (edge, mode);
+    }
+
     (Track? Track, Clip? Clip, bool StartEdge, bool EndEdge) HitTest(Point pt)
     {
         if (pt.Y < RulerHeight) return (null, null, false, false);
@@ -266,6 +310,7 @@ public sealed class TimelineView : FrameworkElement
 
     protected override void OnMouseDown(MouseButtonEventArgs e)
     {
+        if (dragRegion is not null) return;
         Focus();
         var pt = e.GetPosition(this);
         if (pt.X < Header)
@@ -283,10 +328,18 @@ public sealed class TimelineView : FrameworkElement
         var (trk, clip, startEdge, endEdge) = HitTest(pt);
         if (trk?.Role == TrackRole.Subtitles)
         {
-            long t = T(pt.X);
-            var region = s.P.SubtitleRegions.FirstOrDefault(r => t >= r.Start && t < r.End);
+            if (e.ChangedButton != MouseButton.Left) return;
+            var (region, mode) = HitSubtitle(pt.X);
             s.SelectRegion(region?.Id);
-            if (region is null) s.Seek(t);
+            if (region is null) s.Seek(T(pt.X));
+            else if (mode != DragMode.None && CaptureMouse())
+            {
+                drag = mode;
+                dragRegion = region;
+                dragOriginal = PointerTime(pt.X);
+                subtitleEdge = mode == DragMode.TrimStart ? region.Start : SubtitleEnd(region, s.P.Duration);
+                Cursor = Cursors.SizeWE;
+            }
             return;
         }
         if (clip is null || pt.Y < RulerHeight)
@@ -317,7 +370,23 @@ public sealed class TimelineView : FrameworkElement
         if (drag == DragMode.None)
         {
             var hit = HitTest(pt);
+            if (hit.Track?.Role == TrackRole.Subtitles)
+            {
+                var (region, mode) = HitSubtitle(pt.X);
+                Cursor = mode != DragMode.None ? Cursors.SizeWE : region is not null ? Cursors.Hand : Cursors.Arrow;
+                return;
+            }
             Cursor = hit.StartEdge || hit.EndEdge ? Cursors.SizeWE : hit.Clip is not null ? Cursors.Hand : Cursors.Arrow;
+            return;
+        }
+        if (dragRegion is { } regionToResize)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed) ReleaseMouseCapture();
+            else
+            {
+                subtitleEdge = ResizedSubtitleEdge(regionToResize, pt.X);
+                InvalidateVisual();
+            }
             return;
         }
         if (e.LeftButton != MouseButtonState.Pressed) { drag = DragMode.None; return; }
@@ -331,6 +400,22 @@ public sealed class TimelineView : FrameworkElement
 
     protected override void OnMouseUp(MouseButtonEventArgs e)
     {
+        if (dragRegion is { } region)
+        {
+            if (e.ChangedButton != MouseButton.Left) return;
+            bool resizeStart = drag == DragMode.TrimStart;
+            long original = resizeStart ? region.Start : SubtitleEnd(region, s.P.Duration);
+            long edge = ResizedSubtitleEdge(region, e.GetPosition(this).X);
+            ReleaseMouseCapture();
+            if (edge != original && s.P.SubtitleRegions.Contains(region))
+                s.Edit("Resize subtitle region", _ =>
+                {
+                    if (resizeStart) region.Start = edge;
+                    else region.End = edge;
+                    region.IsIntro = false; // Keep the manual range when narration is rebuilt.
+                });
+            return;
+        }
         ReleaseMouseCapture();
         var mode = drag;
         drag = DragMode.None;
@@ -348,6 +433,28 @@ public sealed class TimelineView : FrameworkElement
             }
         });
         dragClip = null;
+    }
+
+    long ResizedSubtitleEdge(SubtitleRegion region, double pointerX)
+    {
+        long duration = s.P.Duration;
+        long end = SubtitleEnd(region, duration);
+        bool resizeStart = drag == DragMode.TrimStart;
+        long original = resizeStart ? region.Start : end;
+        long delta = PointerTime(pointerX) - dragOriginal;
+        if (delta == 0 || duration <= region.Start) return original;
+        long minimum = resizeStart ? 0 : Math.Min(region.Start + Time.Frame, duration);
+        long maximum = resizeStart ? Math.Max(0, end - Time.Frame) : duration;
+        return Math.Clamp(Time.SnapToFrame(original + delta), minimum, maximum);
+    }
+
+    protected override void OnLostMouseCapture(MouseEventArgs e)
+    {
+        base.OnLostMouseCapture(e);
+        if (dragRegion is null) return;
+        dragRegion = null;
+        drag = DragMode.None;
+        InvalidateVisual();
     }
 
     protected override void OnMouseWheel(MouseWheelEventArgs e)
