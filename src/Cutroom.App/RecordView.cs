@@ -28,52 +28,73 @@ public sealed class RecordView : Grid
 
     public bool Recording => recorder.Recording;
     public event Action? GoToClean;
+    readonly FrameworkElement scriptEmpty;
+    readonly Button next;
 
     public RecordView(Session session)
     {
         s = session;
+        scriptEmpty = Ui.EmptyState("Load your script", "Paste it from Google Docs or open a .docx or .txt export. Headings become section headers and YouTube chapters, and cleanup uses the script to find retakes.",
+            Ui.Row(Ui.Button("Paste script", Paste, primary: true), Ui.Button("Open .docx / .txt…", OpenScript)));
         ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64, GridUnitType.Star) });
         ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
         ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36, GridUnitType.Star), MinWidth = 320 });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        var scriptBar = Ui.Row(
+        var smaller = Ui.Button("A−", () => { fontSize = Math.Max(14, fontSize - 2); ShowScript(); }, tip: "Smaller script text", kind: ButtonKind.Icon);
+        var larger = Ui.Button("A+", () => { fontSize = Math.Min(48, fontSize + 2); ShowScript(); }, tip: "Larger script text", kind: ButtonKind.Icon);
+        larger.Margin = new Thickness(0, 0, 14, 0);
+        var header = Ui.PageHeader("Record", "Read your script and record the narration. Flubbed a line? Just say it again; cleanup keeps the last take.",
+            smaller, larger,
             Ui.Button("Paste script", Paste, tip: "Paste from Google Docs (headings are kept)"),
-            Ui.Button("Open .docx / .txt…", OpenScript),
-            Ui.Button("A−", () => { fontSize = Math.Max(14, fontSize - 2); ShowScript(); }),
-            Ui.Button("A+", () => { fontSize = Math.Min(48, fontSize + 2); ShowScript(); }));
-        var left = new DockPanel();
-        DockPanel.SetDock(scriptBar, Dock.Top);
-        left.Children.Add(scriptBar);
+            Ui.Button("Open .docx / .txt…", OpenScript));
+        SetColumnSpan(header, 3);
+        Children.Add(header);
+
+        var left = new Grid();
         left.Children.Add(reader);
+        left.Children.Add(scriptEmpty);
         var leftCard = Ui.Card(left, 16);
+        SetRow(leftCard, 1);
         SetColumn(leftCard, 0);
         Children.Add(leftCard);
 
         recordButton = Ui.Button("● Record", ToggleRecord, "record.toggle", primary: true);
-        recordButton.FontSize = 16;
-        recordButton.Padding = new Thickness(20, 10, 20, 10);
+        recordButton.FontSize = 15;
+        recordButton.Padding = new Thickness(22, 9, 22, 9);
         mics.SelectionChanged += (_, _) =>
         {
             if (mics.SelectedIndex >= 0 && mics.SelectedIndex < devices.Count) { s.Settings.MicrophoneId = devices[mics.SelectedIndex].Id; s.Settings.Save(); }
         };
+        mics.HorizontalAlignment = HorizontalAlignment.Stretch;
+        elapsed.Tabular();
+        elapsed.Margin = new Thickness(0, 10, 0, 6);
+        var controls = Ui.Row(recordButton, Ui.Button("Pause", () => { recorder.Paused = !recorder.Paused; Update(); }),
+            Ui.Button("Mark retake", MarkRetake, "record.retake", tip: "Press right after you flub a line. Optional: cleanup finds retakes either way."));
+        controls.Margin = new Thickness(0, 14, 0, 6);
         var right = Ui.Stack(
             Ui.Header("Narration"),
-            Spacer(8),
-            Ui.Text("Microphone", 12, true), mics,
+            Ui.SectionLabel("Microphone"), mics,
             elapsed,
             level, levelNote,
-            Spacer(10),
-            Ui.Row(recordButton, Ui.Button("Pause", () => { recorder.Paused = !recorder.Paused; Update(); }), Ui.Button("Mark retake", MarkRetake, "record.retake", tip: "Press right after you flub a line. Optional: cleanup finds retakes either way.")),
+            controls,
             marksInfo,
-            Spacer(16),
-            Ui.Header("Or use an existing recording"),
-            Ui.Text("OBS and Streamlabs files work too; only the audio is used.", 12, true),
-            Ui.Row(Ui.Button("Import recording…", ImportRecording)),
+            Ui.SectionLabel("Or use an existing recording"),
+            Ui.Text("OBS and Streamlabs files work too; only the audio is used.", 12.5, true),
             Spacer(8),
-            narrationInfo,
-            Spacer(12),
-            Ui.Row(Ui.Button("Next: clean it →", () => GoToClean?.Invoke(), primary: true)));
-        var rightCard = Ui.Card(Ui.Scroll(right), 18);
+            Ui.Row(Ui.Button("Import recording…", ImportRecording)));
+        next = Ui.Button("Next: clean it →", () => GoToClean?.Invoke());
+        next.Margin = new Thickness(0);
+        next.HorizontalAlignment = HorizontalAlignment.Right;
+        var footer = Ui.Columns((narrationInfo, new GridLength(1, GridUnitType.Star)), (next, GridLength.Auto));
+        footer.Margin = new Thickness(0, 12, 0, 0);
+        var rightDock = new DockPanel();
+        DockPanel.SetDock(footer, Dock.Bottom);
+        rightDock.Children.Add(footer);
+        rightDock.Children.Add(Ui.Scroll(right));
+        var rightCard = Ui.Card(rightDock, 18);
+        SetRow(rightCard, 1);
         SetColumn(rightCard, 2);
         Children.Add(rightCard);
 
@@ -117,18 +138,23 @@ public sealed class RecordView : Grid
 
     void ShowScript()
     {
-        var doc = new FlowDocument { FontFamily = new FontFamily("Segoe UI"), FontSize = fontSize, Foreground = Theme.TextBrush, Background = Theme.PanelBrush, PagePadding = new Thickness(8), LineHeight = fontSize * 1.5 };
-        var script = s.P.Script;
-        if (script is null || !script.Sentences.Any())
+        // One left-aligned column at a comfortable reading width, like a teleprompter page.
+        var doc = new FlowDocument
         {
-            doc.Blocks.Add(new Paragraph(new Run("Paste or open your script. Use headings in Google Docs to mark sections; Cutroom turns them into section headers and YouTube chapters.")) { Foreground = Theme.MutedBrush, FontSize = 18 });
-        }
-        else
+            FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"), FontSize = fontSize, Foreground = Theme.TextBrush, Background = Theme.PanelBrush,
+            PagePadding = new Thickness(12, 4, 12, 12), LineHeight = fontSize * 1.55, TextAlignment = TextAlignment.Left, ColumnWidth = double.MaxValue,
+            MaxPageWidth = fontSize * 44,
+        };
+        var script = s.P.Script;
+        bool empty = script is null || !script.Sentences.Any();
+        scriptEmpty.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+        reader.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
+        if (script is not null && !empty)
         {
             foreach (var section in script.Sections)
             {
                 if (section.Heading is not null)
-                    doc.Blocks.Add(new Paragraph(new Run(section.Heading)) { FontWeight = FontWeights.Bold, FontSize = fontSize * 1.05, Foreground = Theme.AccentBrush, Margin = new Thickness(0, fontSize, 0, fontSize * .4) });
+                    doc.Blocks.Add(new Paragraph(new Run(section.Heading)) { FontWeight = FontWeights.SemiBold, FontSize = fontSize * 1.05, Foreground = Theme.AccentBrush, Margin = new Thickness(0, fontSize * 1.2, 0, fontSize * .4) });
                 foreach (var para in section.Paragraphs)
                     doc.Blocks.Add(new Paragraph(new Run(string.Join(" ", para.Sentences.Select(x => x.Text)))) { Margin = new Thickness(0, 0, 0, fontSize * .8) });
             }
@@ -139,7 +165,9 @@ public sealed class RecordView : Grid
     void ShowNarration()
     {
         var m = s.P.FindMedia(s.P.Narration.MediaId);
-        narrationInfo.Text = m is null ? "No narration yet." : $"Narration: {m.Name} · {TimeSpan.FromSeconds(Time.ToSeconds(m.Duration)):h\\:mm\\:ss}" +
+        // The way forward is the main action once there is narration to clean.
+        Ui.Use(next, m is not null && !s.P.Narration.Processed ? ButtonKind.Primary : ButtonKind.Secondary);
+        narrationInfo.Text = m is null ? "No narration yet." : $"{m.Name} · {TimeSpan.FromSeconds(Time.ToSeconds(m.Duration)):h\\:mm\\:ss}" +
             (s.P.Narration.Processed ? " · cleaned" : " · not cleaned yet");
     }
 

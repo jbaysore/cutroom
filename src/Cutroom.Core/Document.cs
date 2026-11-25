@@ -21,7 +21,9 @@ public static class ProjectJson
     {
         var node = JsonNode.Parse(utf8) as JsonObject ?? throw new InvalidDataException("Not a Cutroom project.");
         Migrate(node);
-        return node.Deserialize<Project>(Options) ?? throw new InvalidDataException("Not a Cutroom project.");
+        var project = node.Deserialize<Project>(Options) ?? throw new InvalidDataException("Not a Cutroom project.");
+        Derive.TimeSlots(project);
+        return project;
     }
 
     /// <summary>Upgrades older project documents in place. Version 0 is any file written before versioning.</summary>

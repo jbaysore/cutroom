@@ -50,6 +50,9 @@ public sealed class CleanView : Grid, IDisposable
     (CleanPreview Preview, TimeRange Range)? nextAudition;
 
     public event Action? GoToEdit;
+    public event Action? GoToRecord;
+    readonly ContentControl empty = new();
+    readonly Button next;
 
     public CleanView(Session session)
     {
@@ -63,9 +66,9 @@ public sealed class CleanView : Grid, IDisposable
         cancel = Ui.Button("Cancel", () => s.CleanupCancel?.Cancel());
         cancel.Visibility = Visibility.Collapsed;
         play = Ui.Button("Play cleaned narration", TogglePlayback, "clean.play", primary: true, tip: "Play or pause cleaned narration");
-        review = Ui.Button("Review cuts", () => SetView(false));
-        all = Ui.Button("All decisions", () => SetView(true));
-        sort = Ui.Button("", ToggleSort, tip: "Order the list by time, or with the decisions cleanup was least sure about first");
+        review = Ui.Button("Review cuts", () => SetView(false), tip: "Retakes and false starts only", kind: ButtonKind.Pill);
+        all = Ui.Button("All decisions", () => SetView(true), tip: "Every cut, including pauses, breaths and mouth noise", kind: ButtonKind.Pill);
+        sort = Ui.Button("", ToggleSort, tip: "Order the list by time, or with the decisions cleanup was least sure about first", kind: ButtonKind.Ghost);
         sort.Name = "ReviewSort";
         original = Ui.Button("Hear original", () => Audition(false), tip: "Hear the selected region with this cut lifted");
         cut = Ui.Button("Hear cut", () => Audition(true), tip: "Hear the selected region with this cut applied");
@@ -81,7 +84,11 @@ public sealed class CleanView : Grid, IDisposable
         passage.Margin = new Thickness(0, 6, 0, 6);
         listen = Ui.Card(Ui.Stack(Ui.Header("Cleaned narration"), summary, transport, seek, markers, passage, playbackStatus));
 
-        var reviewTop = Ui.Stack(Ui.Row(review, all, sort), details, reason, decisionActions);
+        var views = Ui.Segmented(review, all);
+        views.Background = Theme.Panel2Brush;
+        var reviewBar = Ui.Columns((views, GridLength.Auto), (new Border(), new GridLength(1, GridUnitType.Star)), (sort, GridLength.Auto));
+        reviewBar.Margin = new Thickness(0, 0, 0, 12);
+        var reviewTop = Ui.Stack(reviewBar, details, reason, decisionActions);
         reviewTop.Margin = new Thickness(0, 0, 0, 8);
         reason.Margin = new Thickness(0, 4, 0, 8);
         details.MaxHeight = 85;
@@ -96,7 +103,9 @@ public sealed class CleanView : Grid, IDisposable
         var layout = new Grid();
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        var header = Ui.Stack(Ui.Row(run, cancel, scriptButton, next), progress, stage);
+        this.next = next;
+        var header = Ui.Stack(Ui.PageHeader("Clean", "Cuts retakes, long pauses and mouth noise. Listen through and restore anything that sounds wrong.",
+            cancel, scriptButton, run, next), progress, stage);
         header.Margin = new Thickness(0, 0, 0, 8);
         layout.Children.Add(header);
 
@@ -109,6 +118,8 @@ public sealed class CleanView : Grid, IDisposable
         var main = new DockPanel();
         DockPanel.SetDock(listen, Dock.Top);
         main.Children.Add(listen);
+        DockPanel.SetDock(empty, Dock.Top);
+        main.Children.Add(empty);
         main.Children.Add(reviewPane);
         body.Children.Add(main);
 
@@ -171,13 +182,14 @@ public sealed class CleanView : Grid, IDisposable
         return Ui.Stack(
             Ui.Header("Pacing"),
             Ui.Text("Tight but natural by default.", 12, true),
-            new Border { Height = 10 },
+            new Border { Height = 14 },
             Ui.Slider("Pause between sentences (ms)", 100, 500, n.SentenceGapMs, v => Pace("Sentence pause", v, x => x.SentenceGapMs, (x, value) => x.SentenceGapMs = value), "0", 10),
             Ui.Slider("Pause at paragraph breaks (ms)", 150, 900, n.ParagraphGapMs, v => Pace("Paragraph pause", v, x => x.ParagraphGapMs, (x, value) => x.ParagraphGapMs = value), "0", 10),
             Ui.Slider("Pause at commas (ms)", 40, 300, n.CommaGapMs, v => Pace("Comma pause", v, x => x.CommaGapMs, (x, value) => x.CommaGapMs = value), "0", 10),
+            new Border { Height = 8 },
             Ui.Header("Sound"),
-            new Border { Height = 6 },
-            Ui.Text("Background noise removal", 12, true),
+            new Border { Height = 10 },
+            Ui.Text("Background noise removal", 12.5, true),
             Ui.Combo(Enum.GetValues<Denoiser>(), n.Denoiser, d => d switch { Denoiser.DeepFilterNet => "DeepFilterNet", Denoiser.RNNoise => "RNNoise", _ => "Off" },
                 d => { Set("Denoiser", x => x.Denoiser = d); s.Settings.Denoiser = d; s.Settings.Save(); s.Say("Run cleanup again to apply the new noise removal."); }),
             Ui.Text($"Narration is leveled to {n.TargetLufs} LUFS. The final mix is leveled to −14 LUFS on export.", 12, true));
@@ -245,10 +257,18 @@ public sealed class CleanView : Grid, IDisposable
         long? sourcePosition = preview?.Map.ToSource(position);
         StopPlayback();
         run.Content = n.Processed ? "Run cleanup again" : "Clean narration";
+        // Before the first run the empty state carries the "Clean narration" action; afterwards it lives in the header.
+        run.Visibility = n.Processed ? Visibility.Visible : Visibility.Collapsed;
+        Ui.Use(next, n.Processed ? ButtonKind.Primary : ButtonKind.Secondary);
+        empty.Visibility = n.Processed ? Visibility.Collapsed : Visibility.Visible;
+        empty.Content = Ui.Card(n.MediaId is null
+            ? Ui.EmptyState("No narration yet", "Record your narration or import a recording first. Cleanup then finds the retakes and pauses for you.",
+                Ui.Button("Go to Record", () => GoToRecord?.Invoke(), primary: true))
+            : Ui.EmptyState("Ready to clean", "Cleanup cuts retakes, false starts, long pauses and mouth noise, keeping your last good take of each line. Your recording itself is never changed.",
+                Ui.Button("Clean narration", () => _ = Run(), primary: true)));
         preview = n.Processed ? new CleanPreview(s.P) : null;
         listen.Visibility = reviewPane.Visibility = n.Processed ? Visibility.Visible : Visibility.Collapsed;
-        if (!n.Processed && !Busy)
-            stage.Text = n.MediaId is null ? "Record or import narration to get started." : "Clean the narration to trim pauses, mouth noise, and retakes.";
+        if (!n.Processed && !Busy) stage.Text = "";
         if (preview is { } take)
         {
             int speechCuts = n.Decisions.Count(d => IsSpeechCut(d) && d.Removes);
@@ -268,7 +288,7 @@ public sealed class CleanView : Grid, IDisposable
     {
         scriptShown = !scriptShown;
         scriptButton.Content = scriptShown ? "Hide script" : "Show script";
-        scriptButton.Background = scriptShown ? Theme.AccentSoft : Brushes.Transparent;
+        if (scriptShown) scriptButton.Background = Theme.AccentSoft; else scriptButton.ClearValue(BackgroundProperty);
         scriptGapColumn.Width = new GridLength(scriptShown ? 8 : 0);
         scriptColumn.Width = new GridLength(scriptShown ? 320 : 0);
         scriptPane.Visibility = scriptShown ? Visibility.Visible : Visibility.Collapsed;
@@ -329,6 +349,23 @@ public sealed class CleanView : Grid, IDisposable
         _ => "Pause",
     };
 
+    /// <summary>The decision kind as a small colored tag: speech cuts warm, kept speech green, pauses and noise quiet.</summary>
+    static FrameworkElement KindPill(DecisionKind kind)
+    {
+        var color = kind switch
+        {
+            DecisionKind.Retake or DecisionKind.FalseStart => Theme.Sfx,
+            DecisionKind.AdLibKept or DecisionKind.PossibleSpeechKept => Theme.Ok,
+            _ => Theme.Muted,
+        };
+        return new Border
+        {
+            Background = Theme.B(color, 0x26), CornerRadius = new CornerRadius(9), Padding = new Thickness(8, 1, 8, 2),
+            HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock { Text = Label(kind), FontSize = 11.5, FontWeight = FontWeights.SemiBold, Foreground = Theme.B(color) },
+        };
+    }
+
     void SetView(bool showAll, string? select = null)
     {
         allDecisions = showAll;
@@ -350,23 +387,24 @@ public sealed class CleanView : Grid, IDisposable
         list.Items.Clear();
         foreach (var d in visible)
         {
-            var label = Ui.Text(Label(d.Kind), 13, weight: FontWeights.SemiBold);
+            var label = KindPill(d.Kind);
             var context = Ui.Text(d.Context.Length == 0 ? d.Reason : d.Context, 13);
             context.TextWrapping = TextWrapping.NoWrap;
             context.TextTrimming = TextTrimming.CharacterEllipsis;
             var state = Ui.Text(d.Removes ? "Cut" : d.IsCut ? "Restored" : "Kept", 12, true);
+            state.TextAlignment = TextAlignment.Right;
             list.Items.Add(new ListBoxItem
             {
-                Tag = d, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(8, 7, 8, 7),
-                Content = Ui.Columns((Ui.Text(Format(d.Start), 12, true), new GridLength(58)), (label, new GridLength(120)),
+                Tag = d, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Content = Ui.Columns((Ui.Text(Format(d.Start), 12, true).Tabular(), new GridLength(58)), (label, new GridLength(130)),
                     (context, new GridLength(1, GridUnitType.Star)), (state, new GridLength(70))),
             });
         }
         int selected = visible.FindIndex(d => d.Id == select);
         list.SelectedIndex = selected >= 0 ? selected : visible.Count > 0 ? 0 : -1;
         if (list.SelectedItem is { } item) list.ScrollIntoView(item);
-        review.Background = allDecisions ? Brushes.Transparent : Theme.AccentSoft;
-        all.Background = allDecisions ? Theme.AccentSoft : Brushes.Transparent;
+        Ui.SetPill(review, !allDecisions);
+        Ui.SetPill(all, allDecisions);
         UpdateDecision();
     }
 

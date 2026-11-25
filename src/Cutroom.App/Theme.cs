@@ -21,7 +21,20 @@ public static class Theme
     public static SolidColorBrush B(Color c, byte alpha) => B(Color.FromArgb(alpha, c.R, c.G, c.B));
 
     public static readonly SolidColorBrush BgBrush = B(Bg), PanelBrush = B(Panel), Panel2Brush = B(Panel2), Panel3Brush = B(Panel3),
-        TextBrush = B(Text), MutedBrush = B(Muted), AccentBrush = B(Accent), AccentSoft = B(Accent, 0x30), DangerBrush = B(Danger), OkBrush = B(Ok);
+        TextBrush = B(Text), MutedBrush = B(Muted), AccentBrush = B(Accent), AccentSoft = B(Accent, 0x30), DangerBrush = B(Danger), OkBrush = B(Ok),
+        WarnBrush = B(C("#F2C94C"));
+
+    public const double Body = 13, Title = 15;
+
+    /// <summary>Control templates (Styles.xaml), merged into every window after the Fluent dictionary so they win.</summary>
+    static ResourceDictionary? styles;
+    static ResourceDictionary Styles => styles ??= new() { Source = new Uri("pack://application:,,,/Cutroom;component/Styles.xaml") };
+
+    static void UseStyles(ResourceDictionary resources)
+    {
+        resources.MergedDictionaries.Remove(Styles);
+        resources.MergedDictionaries.Add(Styles);
+    }
 
     public static Color RoleColor(TrackRole role) => role switch
     {
@@ -33,6 +46,7 @@ public static class Theme
     {
         Application.Current.ThemeMode = ThemeMode.Dark;
         resources["CutroomBg"] = BgBrush;
+        UseStyles(resources);
         var font = new FontFamily("Segoe UI Variable Text, Segoe UI");
         foreach (var type in new[] { typeof(Window), typeof(UserControl) })
         {
@@ -51,13 +65,19 @@ public static class Theme
         w.FontSize = 13;
         w.UseLayoutRounding = true;
         w.ThemeMode = ThemeMode.Dark;
+        // Fluent may add its dictionary when the window loads; keep ours last either way.
+        UseStyles(w.Resources);
+        w.SourceInitialized += (_, _) => UseStyles(w.Resources);
+        w.Loaded += (_, _) => UseStyles(w.Resources);
     }
 }
+
+public enum ButtonKind { Secondary, Primary, Ghost, Icon, IconPrimary, Pill }
 
 /// <summary>Small factory helpers so views can be built in code with consistent styling.</summary>
 public static class Ui
 {
-    public static Border Card(UIElement child, double padding = 12) => new()
+    public static Border Card(UIElement child, double padding = 14) => new()
     {
         Background = Theme.PanelBrush, CornerRadius = new CornerRadius(12), Padding = new Thickness(padding), Child = child,
     };
@@ -68,24 +88,96 @@ public static class Ui
         TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center,
     };
 
-    public static TextBlock Header(string text) => Text(text, 13, false, FontWeights.SemiBold);
+    public static TextBlock Header(string text) => Text(text, 14, false, FontWeights.SemiBold);
+
+    /// <summary>Small uppercase muted label that names a group of controls or a section of a list.</summary>
+    public static TextBlock SectionLabel(string text)
+    {
+        var t = Text(text.ToUpperInvariant(), 10.5, true, FontWeights.SemiBold);
+        t.Margin = new Thickness(0, 14, 0, 6);
+        return t;
+    }
+
+    /// <summary>The top of a stage: title and one line of explanation on the left, the stage's actions on the right.</summary>
+    public static Grid PageHeader(string title, string subtitle, params UIElement[] actions)
+    {
+        var heading = Stack(Text(title, Theme.Title + 3, false, FontWeights.SemiBold), Text(subtitle, 12.5, true));
+        var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        foreach (var a in actions) right.Children.Add(a);
+        var g = Columns((heading, new GridLength(1, GridUnitType.Star)), (right, GridLength.Auto));
+        g.Margin = new Thickness(4, 2, 0, 12);
+        return g;
+    }
+
+    /// <summary>A calm placeholder for a panel with nothing in it yet: what goes here and how to get it.</summary>
+    public static FrameworkElement EmptyState(string title, string body, UIElement? action = null)
+    {
+        var t = Text(title, Theme.Title, false, FontWeights.SemiBold);
+        t.HorizontalAlignment = HorizontalAlignment.Center;
+        var b = Text(body, Theme.Body, true);
+        b.TextAlignment = TextAlignment.Center;
+        b.MaxWidth = 420;
+        b.Margin = new Thickness(0, 6, 0, 14);
+        var s = Stack(t, b);
+        if (action is FrameworkElement a) { a.HorizontalAlignment = HorizontalAlignment.Center; s.Children.Add(a); }
+        s.HorizontalAlignment = HorizontalAlignment.Center;
+        s.VerticalAlignment = VerticalAlignment.Center;
+        s.Margin = new Thickness(24, 48, 24, 48);
+        return s;
+    }
+
+    /// <summary>Groups of related tool buttons, each group on its own soft tile, wrapping when space runs out.</summary>
+    public static WrapPanel Toolbar(params UIElement[][] groups)
+    {
+        var bar = new WrapPanel();
+        foreach (var group in groups)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            foreach (var item in group)
+            {
+                if (item is FrameworkElement f) f.Margin = new Thickness(0, 0, 2, 0);
+                row.Children.Add(item);
+            }
+            bar.Children.Add(new Border { Background = Theme.PanelBrush, CornerRadius = new CornerRadius(10), Padding = new Thickness(3), Margin = new Thickness(0, 0, 8, 8), Child = row });
+        }
+        return bar;
+    }
+
+    /// <summary>A rounded track holding pill buttons, for stage tabs and two-way switches.</summary>
+    public static Border Segmented(params Button[] pills)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var p in pills) { p.Margin = new Thickness(0, 0, 2, 0); row.Children.Add(p); }
+        return new Border { Background = Theme.PanelBrush, CornerRadius = new CornerRadius(18), Padding = new Thickness(3), Child = row };
+    }
+
+    /// <summary>Marks a pill as the selected one ("on") or the highlighted one ("accent").</summary>
+    public static void SetPill(Button pill, bool on, bool accent = false) => pill.Tag = on ? accent ? "accent" : "on" : null;
+
+    public static void Use(FrameworkElement e, ButtonKind kind) => e.SetResourceReference(FrameworkElement.StyleProperty, kind switch
+    {
+        ButtonKind.Primary => "Button.Primary",
+        ButtonKind.Ghost => "Button.Ghost",
+        ButtonKind.Icon => "Button.Icon",
+        ButtonKind.IconPrimary => "Button.IconPrimary",
+        ButtonKind.Pill => "Button.Pill",
+        _ => typeof(Button),
+    });
+
+    /// <summary>Tabular figures, so times and numbers don't jitter as they change.</summary>
+    public static T Tabular<T>(this T t) where T : TextBlock
+    {
+        System.Windows.Documents.Typography.SetNumeralAlignment(t, FontNumeralAlignment.Tabular);
+        return t;
+    }
 
     /// <summary>A button whose tooltip shows its current keyboard shortcut.</summary>
-    public static Button Button(string label, Action onClick, string? command = null, bool primary = false, string? tip = null)
+    public static Button Button(string label, Action onClick, string? command = null, bool primary = false, string? tip = null, ButtonKind kind = ButtonKind.Secondary)
     {
-        var b = new Button
-        {
-            Content = label, Padding = new Thickness(12, 5, 12, 5), Margin = new Thickness(0, 0, 6, 0), MinHeight = 30,
-            Tag = command,
-        };
-        if (primary)
-        {
-            // Our own accent rather than the Windows accent color, so the look matches mock B everywhere.
-            b.Background = Theme.AccentBrush;
-            b.BorderBrush = Theme.AccentBrush;
-            b.Foreground = Theme.BgBrush;
-            b.FontWeight = FontWeights.SemiBold;
-        }
+        var b = new Button { Content = label, Margin = new Thickness(0, 0, 6, 0) };
+        // Pills use Tag for their selected state.
+        if (kind != ButtonKind.Pill) b.Tag = command;
+        Use(b, primary ? ButtonKind.Primary : kind);
         b.Click += (_, _) => onClick();
         b.ToolTipOpening += (_, _) =>
         {
@@ -98,7 +190,7 @@ public static class Ui
 
     public static ToggleButton Chip(string label, bool on, Action<bool> changed)
     {
-        var t = new ToggleButton { Content = label, IsChecked = on, Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 6, 6), MinHeight = 26 };
+        var t = new ToggleButton { Content = label, IsChecked = on, Margin = new Thickness(0, 0, 6, 6) };
         t.Checked += (_, _) => changed(true);
         t.Unchecked += (_, _) => changed(false);
         return t;
@@ -121,12 +213,13 @@ public static class Ui
     /// <summary>A labeled slider that reports changes when the user releases it.</summary>
     public static FrameworkElement Slider(string label, double min, double max, double value, Action<double> commit, string format = "0.##", double step = 0)
     {
-        var text = Text($"{label}: {value.ToString(format)}", 12, true);
-        var s = new Slider { Minimum = min, Maximum = max, Value = value, Margin = new Thickness(0, 2, 0, 10), IsSnapToTickEnabled = step > 0, TickFrequency = step > 0 ? step : 1 };
-        s.ValueChanged += (_, e) => text.Text = $"{label}: {e.NewValue.ToString(format)}";
+        var name = Text(label, 12.5, true);
+        var shown = Text(value.ToString(format), 12.5).Tabular();
+        var s = new Slider { Minimum = min, Maximum = max, Value = value, Margin = new Thickness(0, 2, 0, 12), IsSnapToTickEnabled = step > 0, TickFrequency = step > 0 ? step : 1 };
+        s.ValueChanged += (_, e) => shown.Text = e.NewValue.ToString(format);
         s.PreviewMouseUp += (_, _) => commit(s.Value);
         s.KeyUp += (_, _) => commit(s.Value);
-        return Stack(text, s);
+        return Stack(Columns((name, new GridLength(1, GridUnitType.Star)), (shown, GridLength.Auto)), s);
     }
 
     public static ComboBox Combo<T>(IEnumerable<T> items, T selected, Func<T, string> name, Action<T> changed)

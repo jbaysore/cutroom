@@ -182,6 +182,21 @@ public partial class App : Application
                     clipped.AddRange(ClippedControls(window).Select(c => $"{label} {stage}: {c}"));
                 }
             }
+            // The Inspector with a clip selected (populated projects), and the Settings window.
+            if (window.Session.P.Tracks.SelectMany(t => t.Clips).FirstOrDefault(c => c.Kind == ClipKind.Card) is { } card)
+            {
+                window.Show(Stage.Edit);
+                window.Session.SelectedClipId = card.Id;
+                await Capture(window, Path.Combine(outDir, "inspector.png"), 1.5);
+                clipped.AddRange(ClippedControls(window).Select(c => $"1080p-150 Inspector: {c}"));
+                window.Session.SelectedClipId = null;
+            }
+            var settingsWindow = new SettingsWindow(window.Session);
+            ConfigureSmokeWindow(settingsWindow);
+            settingsWindow.Show();
+            await Capture(settingsWindow, Path.Combine(outDir, "settings.png"));
+            clipped.AddRange(ClippedControls(settingsWindow).Select(c => $"Settings: {c}"));
+            settingsWindow.Close();
             if (clipped.Count > 0) throw new InvalidOperationException("Controls are cut off:\n" + string.Join("\n", clipped));
             if (next is not null)
             {

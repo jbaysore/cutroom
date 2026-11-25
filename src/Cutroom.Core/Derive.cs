@@ -133,19 +133,36 @@ public static class Derive
     {
         var words = TimelineWords(p);
         var index = words.Select((x, i) => (x.Word.Id, i)).ToDictionary(x => x.Id, x => x.i);
-        long narrationEnd = p.Track(TrackRole.Narration).Clips.Select(c => c.End).DefaultIfEmpty(0).Max();
         p.Slots.RemoveAll(s => !index.ContainsKey(s.FirstWordId));
         p.Slots.Sort((a, b) => index[a.FirstWordId].CompareTo(index[b.FirstWordId]));
-        for (int i = 0; i < p.Slots.Count; i++)
-        {
-            var s = p.Slots[i];
-            s.Start = i == 0 ? 0 : words[index[s.FirstWordId]].TimeRange.Start;
-            s.End = i + 1 < p.Slots.Count ? words[index[p.Slots[i + 1].FirstWordId]].TimeRange.Start : Math.Max(narrationEnd, s.Start + Time.Frame);
-            if (index.TryGetValue(s.LastWordId, out var last) && last < index[s.FirstWordId]) s.LastWordId = s.FirstWordId;
-        }
+        SetSlotTimes(p, words, index);
         foreach (var slot in p.Slots) RetimeSlotClips(p, slot);
         RefreshIntroRegion(p);
         Cards.AutoTimeAll(p);
+    }
+
+    /// <summary>
+    /// Slot times aren't saved (they follow the narration), so a loaded project computes them here without touching
+    /// any clips. Slots whose anchor word is gone keep zero times until the next <see cref="RefreshSlots"/>.
+    /// </summary>
+    public static void TimeSlots(Project p)
+    {
+        if (p.Slots.Count == 0 || !p.Tracks.Any(t => t.Role == TrackRole.Narration)) return;
+        var words = TimelineWords(p);
+        SetSlotTimes(p, words, words.Select((x, i) => (x.Word.Id, i)).ToDictionary(x => x.Id, x => x.i));
+    }
+
+    static void SetSlotTimes(Project p, List<(Word Word, TimeRange TimeRange)> words, Dictionary<string, int> index)
+    {
+        long narrationEnd = p.Track(TrackRole.Narration).Clips.Select(c => c.End).DefaultIfEmpty(0).Max();
+        var placed = p.Slots.Where(s => index.ContainsKey(s.FirstWordId)).ToList();
+        for (int i = 0; i < placed.Count; i++)
+        {
+            var s = placed[i];
+            s.Start = i == 0 ? 0 : words[index[s.FirstWordId]].TimeRange.Start;
+            s.End = i + 1 < placed.Count ? words[index[placed[i + 1].FirstWordId]].TimeRange.Start : Math.Max(narrationEnd, s.Start + Time.Frame);
+            if (index.TryGetValue(s.LastWordId, out var last) && last < index[s.FirstWordId]) s.LastWordId = s.FirstWordId;
+        }
     }
 
     static void RetimeSlotClips(Project p, Slot slot)

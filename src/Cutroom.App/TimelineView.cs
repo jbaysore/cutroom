@@ -119,10 +119,11 @@ public sealed class TimelineView : FrameworkElement
             var track = rows[i];
             double y = RulerHeight + i * rowH;
             dc.DrawLine(new Pen(Theme.B(Colors.White, 10), 1), new Point(0, y + rowH), new Point(ActualWidth, y + rowH));
-            string id = track.Kind switch { TrackKind.Video => "V", TrackKind.Subtitle => "S", _ => "A" };
             var color = Theme.RoleColor(track.Role);
             dc.DrawRectangle(Theme.B(color, (byte)(s.SelectedTrackId == track.Id ? 40 : 0)), null, new Rect(0, y, Header, rowH));
-            dc.DrawText(Label(track.Name, 12, track.Muted ? Theme.MutedBrush : Theme.TextBrush), new Point(14, y + rowH / 2 - 8));
+            // A slim bar in the track's clip color ties the header to its clips.
+            dc.DrawRoundedRectangle(Theme.B(color, (byte)(track.Muted ? 70 : 220)), null, new Rect(10, y + rowH / 2 - 7, 3, 14), 1.5, 1.5);
+            dc.DrawText(Label(track.Name, 12, track.Muted ? Theme.MutedBrush : Theme.TextBrush), new Point(20, y + rowH / 2 - 8));
             if (track.Kind == TrackKind.Audio || track.Kind == TrackKind.Video)
             {
                 dc.DrawText(Label("M", 10, track.Muted ? Theme.DangerBrush : Theme.MutedBrush, track.Muted), new Point(Header - 34, y + rowH / 2 - 7));

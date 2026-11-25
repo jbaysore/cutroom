@@ -24,14 +24,14 @@ public sealed class SettingsWindow : Window
         Height = 720;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Theme.Window(this);
-        var tabs = new TabControl { Margin = new Thickness(12) };
+        var tabs = new TabControl();
         tabs.Items.Add(new TabItem { Header = "Shortcuts", Content = Shortcuts() });
         tabs.Items.Add(new TabItem { Header = "Folders", Content = Page(Folders()) });
         tabs.Items.Add(new TabItem { Header = "AI", Content = Page(Ai()) });
         tabs.Items.Add(new TabItem { Header = "Narration", Content = Page(Narration()) });
         tabs.Items.Add(new TabItem { Header = "Cards", Content = Page(Cards()) });
         tabs.SelectedIndex = tab;
-        Content = tabs;
+        Content = new Border { Padding = new Thickness(12), Child = tabs };
         PreviewKeyDown += Capture;
         Closed += (_, _) => s.Settings.Save();
     }
@@ -45,7 +45,8 @@ public sealed class SettingsWindow : Window
         filter.ToolTip = "Search commands or keys";
         filter.TextChanged += (_, _) => FillShortcuts();
         var reset = Ui.Button("Reset all to defaults", () => { s.Settings.Keys.Clear(); FillShortcuts(); });
-        var top = Ui.Stack(Ui.Text("Click a shortcut, then press the new keys. Esc cancels, Backspace clears.", 12, true), new Border { Height = 8 }, filter, conflicts, Ui.Row(reset));
+        var label = new Label { Content = "_Search shortcuts", Target = filter, Padding = new Thickness(0, 0, 0, 4) };
+        var top = Ui.Stack(Ui.Text("Click a shortcut, then press the new keys. Esc cancels, Backspace clears.", 12, true), new Border { Height = 12 }, label, filter, conflicts, Ui.Row(reset));
         var dock = new DockPanel { Margin = new Thickness(6, 14, 6, 6) };
         DockPanel.SetDock(top, Dock.Top);
         dock.Children.Add(top);

@@ -51,9 +51,6 @@ internal sealed class ProjectsWindow : Window
         listing.Children.Add(projects);
         listing.Children.Add(empty);
         ScrollViewer.SetHorizontalScrollBarVisibility(projects, ScrollBarVisibility.Disabled);
-        var itemStyle = new Style(typeof(ListBoxItem));
-        itemStyle.Setters.Add(new Setter(HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
-        projects.ItemContainerStyle = itemStyle;
 
         open = Ui.Button("Open", OpenSelected, primary: true);
         open.Name = "OpenProject";

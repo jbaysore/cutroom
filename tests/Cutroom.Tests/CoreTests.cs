@@ -272,6 +272,16 @@ public class NarrationTests
     }
 
     [Fact]
+    public void LoadedProjectHasSlotTimes()
+    {
+        var p = Fixtures.Narrated("Hook one here. Hook two here.\n# Main\nBody sentence one. Body two.",
+            "Hook one here.", "Hook two here.", "Body sentence one.", "Body two.");
+        var loaded = ProjectJson.Deserialize(ProjectJson.Serialize(p));
+        Assert.Equal(p.Slots.Select(s => (s.Start, s.End)), loaded.Slots.Select(s => (s.Start, s.End)));
+        Assert.All(loaded.Slots, s => Assert.True(s.End > s.Start));
+    }
+
+    [Fact]
     public void SlotsFollowSentencesAndClipsRetime()
     {
         var p = Fixtures.Narrated("Hook one here. Hook two here.\n# Main\nBody sentence one. Body two.",

@@ -17,8 +17,10 @@ public sealed class EditView : Grid
     public InspectorPanel Inspector { get; }
     readonly TabControl tabs = new();
     readonly PreviewHost preview = new();
-    readonly TextBlock timecode = Ui.Text("", 13);
+    readonly TextBlock timecode = Ui.Text("", 13).Tabular();
+    readonly TextBlock viewTitle = Ui.Header("Timeline preview");
     readonly TextBlock viewLabel = Ui.Text("", 12, true);
+    Button timelinePill = null!, sourcePill = null!;
     readonly PreviewRenderer renderer;
     Window? popout;
 
@@ -51,7 +53,7 @@ public sealed class EditView : Grid
         tabs.Items.Add(new TabItem { Header = "Footage", Content = Pad(Footage) });
         tabs.Items.Add(new TabItem { Header = "Assets", Content = Pad(Assets) });
         tabs.Items.Add(new TabItem { Header = "Inspector", Content = Pad(Inspector) });
-        var right = new Border { Background = Theme.PanelBrush, CornerRadius = new CornerRadius(12), Padding = new Thickness(8), Child = tabs };
+        var right = new Border { Background = Theme.PanelBrush, CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 12, 10, 10), Child = tabs };
         var top = new Grid();
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22, GridUnitType.Star), MinWidth = 220 });
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
@@ -72,7 +74,7 @@ public sealed class EditView : Grid
         UpdateTimecode();
     }
 
-    static Border Pad(UIElement e) => new() { Padding = new Thickness(4, 10, 4, 4), Child = e };
+    static Border Pad(UIElement e) => new() { Padding = new Thickness(4, 0, 4, 4), Child = e };
 
     static void Place(Grid g, UIElement e, int index, bool row = false)
     {
@@ -82,51 +84,83 @@ public sealed class EditView : Grid
 
     FrameworkElement BuildCenter()
     {
-        var transport = Ui.Row(
-            Ui.Button("⏮", () => s.Seek(TimelineOps.PreviousEdit(s.P, s.Playhead)), "nav.prevEdit"),
-            Ui.Button("◀◀", () => s.Shuttle(-1), "play.reverse"),
-            Ui.Button("▶ / ❚❚", s.Toggle, "play.toggle", primary: true),
-            Ui.Button("▶▶", () => s.Shuttle(1), "play.forward"),
-            Ui.Button("⏭", () => s.Seek(TimelineOps.NextEdit(s.P, s.Playhead)), "nav.nextEdit"));
-        transport.Margin = new Thickness(0);
-        timecode.FontFamily = new System.Windows.Media.FontFamily("Consolas");
-        timecode.Margin = new Thickness(12, 0, 12, 0);
-        var toggle = Ui.Button("Timeline / Source", s.ToggleSourceView, tip: "Switch the viewer between the timeline and the footage you picked");
-        var pop = Ui.Button("Pop out", TogglePopout, "view.popout", tip: "Show the preview on your other monitor");
-        var bar = new DockPanel { Margin = new Thickness(0, 8, 0, 0), LastChildFill = false };
-        bar.Children.Add(transport);
-        bar.Children.Add(timecode);
-        bar.Children.Add(viewLabel);
-        DockPanel.SetDock(pop, Dock.Right);
-        DockPanel.SetDock(toggle, Dock.Right);
-        bar.Children.Add(pop);
-        bar.Children.Add(toggle);
+        // Header: what the viewer shows, with context (current slot, or the source clip and its marks) on the right.
+        viewLabel.TextTrimming = TextTrimming.CharacterEllipsis;
+        viewLabel.TextWrapping = TextWrapping.NoWrap;
+        viewLabel.TextAlignment = TextAlignment.Right;
+        viewLabel.Margin = new Thickness(16, 0, 2, 0);
+        var header = Ui.Columns((viewTitle, GridLength.Auto), (viewLabel, new GridLength(1, GridUnitType.Star)));
+        header.Margin = new Thickness(4, 0, 0, 10);
+
+        // Transport: timecode left, round buttons centered, view switch and pop-out right (mock B).
+        Button Round(string glyph, Action a, string cmd, bool play = false)
+        {
+            var b = Ui.Button(glyph, a, cmd, kind: play ? ButtonKind.IconPrimary : ButtonKind.Icon);
+            b.Margin = new Thickness(3, 0, 3, 0);
+            b.FontSize = play ? 15 : 12;
+            return b;
+        }
+        var transport = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        transport.Children.Add(Round("⏮", () => s.Seek(TimelineOps.PreviousEdit(s.P, s.Playhead)), "nav.prevEdit"));
+        transport.Children.Add(Round("◀◀", () => s.Shuttle(-1), "play.reverse"));
+        transport.Children.Add(Round("▶", s.Toggle, "play.toggle", play: true));
+        transport.Children.Add(Round("▶▶", () => s.Shuttle(1), "play.forward"));
+        transport.Children.Add(Round("⏭", () => s.Seek(TimelineOps.NextEdit(s.P, s.Playhead)), "nav.nextEdit"));
+        timecode.FontFamily = new System.Windows.Media.FontFamily("Cascadia Mono, Consolas");
+        timecode.Margin = new Thickness(6, 0, 0, 0);
+        timelinePill = Ui.Button("Timeline", () => { if (s.ShowingSource) s.ToggleSourceView(); }, tip: "Show the edited timeline", kind: ButtonKind.Pill);
+        sourcePill = Ui.Button("Source", () => { if (!s.ShowingSource) s.ToggleSourceView(); }, tip: "Show the footage you picked in the library", kind: ButtonKind.Pill);
+        timelinePill.Padding = sourcePill.Padding = new Thickness(12, 3, 12, 3);
+        timelinePill.MinHeight = sourcePill.MinHeight = 26;
+        var view = Ui.Segmented(timelinePill, sourcePill);
+        view.Background = Theme.Panel2Brush;
+        var pop = Ui.Button("⧉", TogglePopout, "view.popout", tip: "Show the preview on your other monitor", kind: ButtonKind.Icon);
+        pop.Margin = new Thickness(8, 0, 0, 0);
+        var tools = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Children = { view, pop } };
+        var bar = Ui.Columns((timecode, new GridLength(1, GridUnitType.Star)), (transport, GridLength.Auto), (tools, new GridLength(1, GridUnitType.Star)));
+        bar.Margin = new Thickness(0, 10, 0, 0);
+
         var dock = new DockPanel();
+        DockPanel.SetDock(header, Dock.Top);
         DockPanel.SetDock(bar, Dock.Bottom);
+        dock.Children.Add(header);
         dock.Children.Add(bar);
         dock.Children.Add(new Border { Background = System.Windows.Media.Brushes.Black, CornerRadius = new CornerRadius(8), ClipToBounds = true, Child = preview });
-        return Ui.Card(dock, 10);
+        return Ui.Card(dock);
     }
 
     FrameworkElement BuildToolbar()
     {
-        var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
-        void Add(string label, Action a, string? cmd, string? tip = null) => bar.Children.Add(Ui.Button(label, a, cmd, tip: tip));
-        Add("Fill slot", () => _ = Commands.FillSlot(false), "slot.fill", "Put the picked footage into the current slot, trimmed to fit");
-        Add("Next empty", () => Commands.NextEmptySlot(1), "slot.next");
-        Add("Blur card", () => Commands.AddCard(CardTemplateKind.Blur), "card.blur", "Blur the footage and put text on top");
-        Add("Notebook card", () => Commands.AddCard(CardTemplateKind.Background), "card.background", "Cut to the notebook page with text");
-        Add("Section", () => Commands.AddCard(CardTemplateKind.SectionHeader), null, "Section header card");
-        Add("Title", () => Commands.AddCard(CardTemplateKind.TitleCard), null, "Title card");
-        Add("End screen", () => Commands.AddCard(CardTemplateKind.EndScreen), null, "End screen for YouTube end-screen elements");
-        Add("Zoom", () => Commands.AddEffect(EffectKind.ZoomToBox), "fx.zoom", "Zoom into a box, then back out");
-        Add("Freeze + outline", () => Commands.AddEffect(EffectKind.FreezeOutline), "fx.freezeOutline", "Freeze the frame and circle something");
-        Add("Shake", () => Commands.AddEffect(EffectKind.Shake), "fx.shake");
-        Add("Flash", () => Commands.AddEffect(EffectKind.Flash), "fx.flash");
-        Add("Transition", () => Commands.AddTransition(), "edit.transition", "Fade at the nearest cut (swap the style in the Inspector)");
-        Add("Blade", Commands.Blade, "edit.blade");
-        Add("Fit timeline", Timeline.ZoomToFit, null);
-        return bar;
+        Button Tool(string label, Action a, string? cmd, string? tip = null) => Ui.Button(label, a, cmd, tip: tip, kind: ButtonKind.Ghost);
+        var groups = Ui.Toolbar(
+            [
+                Tool("Fill slot", () => _ = Commands.FillSlot(false), "slot.fill", "Put the picked footage into the current slot, trimmed to fit"),
+                Tool("Next empty", () => Commands.NextEmptySlot(1), "slot.next"),
+            ],
+            [
+                Tool("Blur card", () => Commands.AddCard(CardTemplateKind.Blur), "card.blur", "Blur the footage and put text on top"),
+                Tool("Notebook card", () => Commands.AddCard(CardTemplateKind.Background), "card.background", "Cut to the notebook page with text"),
+                Tool("Section", () => Commands.AddCard(CardTemplateKind.SectionHeader), null, "Section header card"),
+                Tool("Title", () => Commands.AddCard(CardTemplateKind.TitleCard), null, "Title card"),
+                Tool("End screen", () => Commands.AddCard(CardTemplateKind.EndScreen), null, "End screen for YouTube end-screen elements"),
+            ],
+            [
+                Tool("Zoom", () => Commands.AddEffect(EffectKind.ZoomToBox), "fx.zoom", "Zoom into a box, then back out"),
+                Tool("Freeze + outline", () => Commands.AddEffect(EffectKind.FreezeOutline), "fx.freezeOutline", "Freeze the frame and circle something"),
+                Tool("Shake", () => Commands.AddEffect(EffectKind.Shake), "fx.shake"),
+                Tool("Flash", () => Commands.AddEffect(EffectKind.Flash), "fx.flash"),
+            ],
+            [
+                Tool("Transition", () => Commands.AddTransition(), "edit.transition", "Fade at the nearest cut (swap the style in the Inspector)"),
+                Tool("Blade", Commands.Blade, "edit.blade"),
+            ]);
+        var fit = Ui.Toolbar([Tool("Fit timeline", Timeline.ZoomToFit, null, "Show the whole timeline")]);
+        fit.Children[0].SetValue(MarginProperty, new Thickness(8, 0, 0, 8));
+        var dock = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
+        DockPanel.SetDock(fit, Dock.Right);
+        dock.Children.Add(fit);
+        dock.Children.Add(groups);
+        return dock;
     }
 
     void UpdateTimecode()
@@ -134,14 +168,18 @@ public sealed class EditView : Grid
         if (s.ShowingSource && s.Source is { } src)
         {
             timecode.Text = Time.Timecode(s.SourcePosition);
-            viewLabel.Text = $"SOURCE · {src.Name}" + (s.SourceIn is { } i ? $"  in {Time.Timecode(i)}" : "") + (s.SourceOut is { } o ? $"  out {Time.Timecode(o)}" : "");
+            viewTitle.Text = "Source";
+            viewLabel.Text = src.Name + (s.SourceIn is { } i ? $"  ·  in {Time.Timecode(i)}" : "") + (s.SourceOut is { } o ? $"  ·  out {Time.Timecode(o)}" : "");
         }
         else
         {
             timecode.Text = Time.Timecode(s.Playhead);
+            viewTitle.Text = "Timeline preview";
             var slot = s.CurrentSlot;
-            viewLabel.Text = "TIMELINE" + (slot?.Suggestion is { } sug ? $" · AI: {sug.Kind} {sug.ClipDescription}" : "");
+            viewLabel.Text = slot?.Suggestion is { } sug ? $"AI · {sug.Kind} {sug.ClipDescription}" : slot is null ? "" : slot.Text;
         }
+        Ui.SetPill(timelinePill, !s.ShowingSource);
+        Ui.SetPill(sourcePill, s.ShowingSource);
     }
 
     public bool PopoutOpen => popout is not null;

@@ -1,0 +1,403 @@
+<!--
+  Cutroom's control styles (mock B, modern minimal). Views are built in code; only control templates live here.
+  Merged into every window after the Fluent dark dictionary (see Theme.Window), so these win over Fluent.
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- Palette (mirrors Theme.cs) -->
+  <Color x:Key="C.Bg">#0B0C0F</Color>
+  <Color x:Key="C.Panel">#14161B</Color>
+  <Color x:Key="C.Panel2">#1B1E25</Color>
+  <Color x:Key="C.Panel3">#232733</Color>
+  <Color x:Key="C.Panel4">#2C3140</Color>
+  <Color x:Key="C.Text">#E8E9EE</Color>
+  <Color x:Key="C.Muted">#7D8291</Color>
+  <Color x:Key="C.Accent">#7C8CFF</Color>
+  <Color x:Key="C.AccentHover">#909EFF</Color>
+  <Color x:Key="C.AccentPressed">#6A7AF0</Color>
+  <SolidColorBrush x:Key="B.Bg" Color="{StaticResource C.Bg}" />
+  <SolidColorBrush x:Key="B.Panel" Color="{StaticResource C.Panel}" />
+  <SolidColorBrush x:Key="B.Panel2" Color="{StaticResource C.Panel2}" />
+  <SolidColorBrush x:Key="B.Panel3" Color="{StaticResource C.Panel3}" />
+  <SolidColorBrush x:Key="B.Panel4" Color="{StaticResource C.Panel4}" />
+  <SolidColorBrush x:Key="B.Text" Color="{StaticResource C.Text}" />
+  <SolidColorBrush x:Key="B.Muted" Color="{StaticResource C.Muted}" />
+  <SolidColorBrush x:Key="B.Accent" Color="{StaticResource C.Accent}" />
+  <SolidColorBrush x:Key="B.AccentHover" Color="{StaticResource C.AccentHover}" />
+  <SolidColorBrush x:Key="B.AccentPressed" Color="{StaticResource C.AccentPressed}" />
+  <SolidColorBrush x:Key="B.AccentSoft" Color="#307C8CFF" />
+  <SolidColorBrush x:Key="B.Line" Color="#10FFFFFF" />
+
+  <!-- Fluent overrides: our accent instead of the Windows one, and borderless fills for the controls we don't re-template
+       (ComboBox, Slider, CheckBox, ScrollBar, menus). -->
+  <Color x:Key="SystemAccentColor">#7C8CFF</Color>
+  <Color x:Key="SystemAccentColorLight1">#909EFF</Color>
+  <Color x:Key="SystemAccentColorLight2">#A4B0FF</Color>
+  <Color x:Key="SystemAccentColorLight3">#B8C1FF</Color>
+  <Color x:Key="SystemAccentColorDark1">#6A7AF0</Color>
+  <Color x:Key="SystemAccentColorDark2">#5868DD</Color>
+  <Color x:Key="SystemAccentColorDark3">#4656C8</Color>
+  <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#7C8CFF" />
+  <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E67C8CFF" />
+  <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#CC7C8CFF" />
+  <SolidColorBrush x:Key="AccentFillColorSelectedTextBackgroundBrush" Color="#7C8CFF" />
+  <SolidColorBrush x:Key="ControlFillColorDefaultBrush" Color="{StaticResource C.Panel2}" />
+  <SolidColorBrush x:Key="ControlFillColorSecondaryBrush" Color="{StaticResource C.Panel3}" />
+  <SolidColorBrush x:Key="ControlFillColorTertiaryBrush" Color="{StaticResource C.Panel2}" />
+  <SolidColorBrush x:Key="ControlFillColorInputActiveBrush" Color="{StaticResource C.Panel2}" />
+  <SolidColorBrush x:Key="ControlElevationBorderBrush" Color="Transparent" />
+  <SolidColorBrush x:Key="ControlStrokeColorDefaultBrush" Color="Transparent" />
+  <SolidColorBrush x:Key="TextControlElevationBorderBrush" Color="Transparent" />
+  <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent" />
+  <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="Transparent" />
+  <SolidColorBrush x:Key="ComboBoxItemPillFillBrush" Color="#7C8CFF" />
+  <SolidColorBrush x:Key="ListViewItemPillFillBrush" Color="#7C8CFF" />
+  <CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
+
+  <!-- Keyboard focus: a soft accent ring, only when focus came from the keyboard. -->
+  <Style x:Key="FocusRing">
+    <Setter Property="Control.Template">
+      <Setter.Value>
+        <ControlTemplate>
+          <Border Margin="-3" CornerRadius="10" BorderThickness="1.5" BorderBrush="{StaticResource B.Accent}" SnapsToDevicePixels="True" />
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Buttons: Secondary (default), Primary, Ghost, Icon, Pill (stage tabs and segments). -->
+  <Style x:Key="Button.Base" TargetType="ButtonBase">
+    <Setter Property="Background" Value="{StaticResource B.Panel2}" />
+    <Setter Property="Foreground" Value="{StaticResource B.Text}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="12,6" />
+    <Setter Property="MinHeight" Value="32" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
+    <Setter Property="SnapsToDevicePixels" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ButtonBase">
+          <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="False" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.Panel3}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.Panel4}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.45" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style TargetType="Button" BasedOn="{StaticResource Button.Base}" />
+
+  <Style x:Key="Button.Primary" TargetType="Button" BasedOn="{StaticResource Button.Base}">
+    <Setter Property="Background" Value="{StaticResource B.Accent}" />
+    <Setter Property="Foreground" Value="{StaticResource B.Bg}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="False" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.AccentHover}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.AccentPressed}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.45" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="Button.Ghost" TargetType="Button" BasedOn="{StaticResource Button.Base}">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Padding" Value="10,6" />
+  </Style>
+
+  <Style x:Key="Button.Icon" TargetType="Button" BasedOn="{StaticResource Button.Base}">
+    <Setter Property="Width" Value="34" />
+    <Setter Property="Height" Value="34" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="17">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="False" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.Panel3}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.Panel4}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.45" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="Button.IconPrimary" TargetType="Button" BasedOn="{StaticResource Button.Icon}">
+    <Setter Property="Background" Value="{StaticResource B.Accent}" />
+    <Setter Property="Foreground" Value="{StaticResource B.Bg}" />
+    <Setter Property="Width" Value="42" />
+    <Setter Property="Height" Value="42" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="21">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="False" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.AccentHover}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.AccentPressed}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Pills: stage tabs, panel tabs and two-way segments. Tag="on" marks the active one (set from code). -->
+  <Style x:Key="Button.Pill" TargetType="Button" BasedOn="{StaticResource Button.Base}">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource B.Muted}" />
+    <Setter Property="Padding" Value="16,5" />
+    <Setter Property="MinHeight" Value="30" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="15" Padding="{TemplateBinding Padding}">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="False" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter Property="Foreground" Value="{StaticResource B.Text}" />
+            </Trigger>
+            <Trigger Property="Tag" Value="on">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.Panel3}" />
+              <Setter Property="Foreground" Value="{StaticResource B.Text}" />
+            </Trigger>
+            <Trigger Property="Tag" Value="accent">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.Accent}" />
+              <Setter Property="Foreground" Value="{StaticResource B.Bg}" />
+              <Setter Property="FontWeight" Value="SemiBold" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Chips (filters, toggles): pill, soft accent when on. -->
+  <Style TargetType="ToggleButton" BasedOn="{StaticResource Button.Base}">
+    <Setter Property="Foreground" Value="{StaticResource B.Muted}" />
+    <Setter Property="Padding" Value="11,3" />
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ToggleButton">
+          <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="13" Padding="{TemplateBinding Padding}">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="False" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.Panel3}" />
+              <Setter Property="Foreground" Value="{StaticResource B.Text}" />
+            </Trigger>
+            <Trigger Property="IsChecked" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.AccentSoft}" />
+              <Setter Property="Foreground" Value="{StaticResource B.Text}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.45" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Text inputs: filled, borderless, accent underline when focused. -->
+  <Style TargetType="TextBox">
+    <Setter Property="Background" Value="{StaticResource B.Panel2}" />
+    <Setter Property="Foreground" Value="{StaticResource B.Text}" />
+    <Setter Property="CaretBrush" Value="{StaticResource B.Text}" />
+    <Setter Property="SelectionBrush" Value="{StaticResource B.Accent}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="10,7" />
+    <Setter Property="MinHeight" Value="34" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="TextBox">
+          <Grid>
+            <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="8" />
+            <Border x:Name="Underline" Height="2" VerticalAlignment="Bottom" Margin="6,0" CornerRadius="1" Background="Transparent" />
+            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                          Focusable="False" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="{TemplateBinding VerticalScrollBarVisibility}" />
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="AcceptsReturn" Value="True">
+              <Setter TargetName="PART_ContentHost" Property="VerticalAlignment" Value="Stretch" />
+            </Trigger>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.Panel3}" />
+            </Trigger>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.Panel2}" />
+              <Setter TargetName="Underline" Property="Background" Value="{StaticResource B.Accent}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.5" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Lists: rounded rows, soft hover, accent-tinted selection. -->
+  <Style TargetType="ListBox">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Foreground" Value="{StaticResource B.Text}" />
+    <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+  </Style>
+  <Style TargetType="ListBoxItem">
+    <Setter Property="Foreground" Value="{StaticResource B.Text}" />
+    <Setter Property="Padding" Value="10,7" />
+    <Setter Property="Margin" Value="0,0,0,2" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ListBoxItem">
+          <Border x:Name="Chrome" Background="Transparent" CornerRadius="8" Padding="{TemplateBinding Padding}">
+            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.Panel2}" />
+            </Trigger>
+            <Trigger Property="IsSelected" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.AccentSoft}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Tabs: pills over the content, as in the mock. -->
+  <Style TargetType="TabControl">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="TabControl">
+          <DockPanel>
+            <TabPanel DockPanel.Dock="Top" IsItemsHost="True" Margin="0,0,0,12" />
+            <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent" />
+          </DockPanel>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <Style TargetType="TabItem">
+    <Setter Property="Foreground" Value="{StaticResource B.Muted}" />
+    <Setter Property="Padding" Value="14,5" />
+    <Setter Property="Margin" Value="0,0,4,0" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="TabItem">
+          <Border x:Name="Chrome" Background="Transparent" CornerRadius="15" Padding="{TemplateBinding Padding}">
+            <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="False" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter Property="Foreground" Value="{StaticResource B.Text}" />
+            </Trigger>
+            <Trigger Property="IsSelected" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{StaticResource B.Panel3}" />
+              <Setter Property="Foreground" Value="{StaticResource B.Text}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style TargetType="ToolTip">
+    <Setter Property="Background" Value="{StaticResource B.Panel3}" />
+    <Setter Property="Foreground" Value="{StaticResource B.Text}" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ToolTip">
+          <Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="9,6" Margin="4" MaxWidth="420">
+            <Border.Effect>
+              <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.45" Color="Black" />
+            </Border.Effect>
+            <ContentPresenter TextBlock.Foreground="{TemplateBinding Foreground}">
+              <ContentPresenter.Resources>
+                <Style TargetType="TextBlock">
+                  <Setter Property="TextWrapping" Value="Wrap" />
+                </Style>
+              </ContentPresenter.Resources>
+            </ContentPresenter>
+          </Border>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style TargetType="ProgressBar">
+    <Setter Property="Foreground" Value="{StaticResource B.Accent}" />
+    <Setter Property="Background" Value="{StaticResource B.Panel3}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Height" Value="6" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ProgressBar">
+          <Grid>
+            <Border x:Name="PART_Track" Background="{TemplateBinding Background}" CornerRadius="3" />
+            <Border x:Name="PART_Indicator" Background="{TemplateBinding Foreground}" CornerRadius="3" HorizontalAlignment="Left" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+</ResourceDictionary>

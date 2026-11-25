@@ -24,6 +24,10 @@ public sealed class MainWindow : Window
     readonly TextBlock status = Ui.Text("", 12, true);
     readonly TextBlock jobs = Ui.Text("", 12, true);
     readonly TextBlock ai = Ui.Text("", 12, true);
+    readonly Dictionary<Stage, TextBlock> stageDone = [];
+    readonly Border saved = new() { CornerRadius = new CornerRadius(4), VerticalAlignment = VerticalAlignment.Center };
+    readonly TextBlock savedText = Ui.Text("", 12, true);
+    bool? shownDirty;
     readonly System.Windows.Threading.DispatcherTimer statusClear = new() { Interval = TimeSpan.FromSeconds(6) };
     public Stage Current { get; private set; } = Stage.Edit;
 
@@ -43,6 +47,7 @@ public sealed class MainWindow : Window
         export = new ExportView(Session);
         record.GoToClean += () => Show(Stage.Clean);
         clean.GoToEdit += () => Show(Stage.Edit);
+        clean.GoToRecord += () => Show(Stage.Record);
         export.GoToVisualGap += frame =>
         {
             Show(Stage.Edit);
@@ -86,53 +91,80 @@ public sealed class MainWindow : Window
 
     FrameworkElement TopBar()
     {
-        var logo = Ui.Text("◆ Cutroom", 15, false, FontWeights.Bold);
-        logo.Foreground = Theme.AccentBrush;
-        logo.Margin = new Thickness(0, 0, 16, 0);
-        projectName.Margin = new Thickness(0, 0, 20, 0);
-        projectName.MaxWidth = 160;
+        // Wordmark as in mock B: CUT in text color, ROOM in the accent.
+        var logo = new TextBlock { FontSize = 15, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 14, 0) };
+        logo.Inlines.Add(new System.Windows.Documents.Run("CUT") { Foreground = Theme.TextBrush });
+        logo.Inlines.Add(new System.Windows.Documents.Run("ROOM") { Foreground = Theme.AccentBrush });
+
+        // The project name is the project menu: switch projects, save, import, settings.
+        projectName.MaxWidth = 260;
         projectName.TextWrapping = TextWrapping.NoWrap;
         projectName.TextTrimming = TextTrimming.CharacterEllipsis;
-        var projects = Ui.Button("Projects…", OpenProjects, "file.projects");
-        var file = Ui.Button("File ▾", () => { }, tip: "Save and import");
-        file.Click += (_, _) => FileMenu(file);
+        var caret = Ui.Text("▾", 11, true);
+        caret.Margin = new Thickness(8, 1, 0, 0);
+        var project = new Button { Content = new StackPanel { Orientation = Orientation.Horizontal, Children = { projectName, caret } }, Tag = "file.projects" };
+        Ui.Use(project, ButtonKind.Ghost);
+        project.ToolTip = "Projects, save and import";
+        project.Click += (_, _) => ProjectMenu(project);
 
-        var stages = new Border { Background = Theme.PanelBrush, CornerRadius = new CornerRadius(10), Padding = new Thickness(4) };
-        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        var stagePills = new List<Button>();
         foreach (var (stage, n) in new[] { (Stage.Record, 1), (Stage.Clean, 2), (Stage.Edit, 3), (Stage.Export, 4) })
         {
-            var pill = new Button { Content = $"{n}  {stage}", Padding = new Thickness(18, 5, 18, 5), Margin = new Thickness(2, 0, 2, 0), MinWidth = 110, ToolTip = $"{stage} (Ctrl+{n})" };
+            // Plain TextBlocks so they take the pill's foreground (dark on the active accent pill).
+            var number = new TextBlock { Text = n.ToString(), FontSize = 11, Opacity = .6, Margin = new Thickness(0, 1, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+            var done = new TextBlock { Text = "✓", FontSize = 12, FontWeight = FontWeights.Bold, Margin = new Thickness(7, 0, 0, 0), Visibility = Visibility.Collapsed };
+            var pill = new Button { Content = new StackPanel { Orientation = Orientation.Horizontal, Children = { number, new TextBlock { Text = stage.ToString() }, done } }, MinWidth = 104, ToolTip = $"{stage} (Ctrl+{n})" };
+            Ui.Use(pill, ButtonKind.Pill);
             pill.Click += (_, _) => Show(stage);
             pills[stage] = pill;
-            row.Children.Add(pill);
+            stageDone[stage] = done;
+            stagePills.Add(pill);
         }
-        stages.Child = row;
+        var stages = Ui.Segmented([.. stagePills]);
 
-        var settings = Ui.Button("⚙", () => OpenSettings(0), tip: "Settings and shortcuts");
-        var left = Ui.Row(logo, projects, file, projectName);
-        left.Margin = new Thickness(0);
-        left.VerticalAlignment = VerticalAlignment.Center;
-        var right = Ui.Row(status, Spacer(), jobs, Spacer(), ai, Spacer(), settings);
-        right.Margin = new Thickness(0);
-        right.VerticalAlignment = VerticalAlignment.Center;
-        right.HorizontalAlignment = HorizontalAlignment.Right;
+        saved.Width = saved.Height = 7;
+        saved.Margin = new Thickness(0, 1, 6, 0);
+        var settings = Ui.Button("⚙", () => OpenSettings(0), tip: "Settings and shortcuts", kind: ButtonKind.Icon);
+        settings.Margin = new Thickness(10, 0, 0, 0);
+        var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Children = { logo, project } };
+        var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
+        foreach (var e in new UIElement[] { status, Spacer(), jobs, Spacer(), saved, savedText, Spacer(), ai, settings }) right.Children.Add(e);
         var g = Ui.Columns((left, new GridLength(1, GridUnitType.Star)), (stages, GridLength.Auto), (right, new GridLength(1, GridUnitType.Star)));
-        g.Margin = new Thickness(14, 10, 14, 10);
+        g.Margin = new Thickness(10, 10, 10, 10);
         return g;
     }
 
-    static FrameworkElement Spacer() => new Border { Width = 14 };
+    static FrameworkElement Spacer() => new Border { Width = 18 };
 
-    void FileMenu(FrameworkElement anchor)
+    void ProjectMenu(FrameworkElement anchor)
     {
         var menu = new ContextMenu { PlacementTarget = anchor, Placement = PlacementMode.Bottom };
         void Item(string header, Action a, string? key = null) { var i = new MenuItem { Header = header, InputGestureText = key ?? "" }; i.Click += (_, _) => a(); menu.Items.Add(i); }
+        Item("Projects…", OpenProjects, Session.Settings.KeyFor("file.projects"));
         Item("Save", () => { Session.SaveSafely(); Say("Saved"); }, Session.Settings.KeyFor("file.save"));
         menu.Items.Add(new Separator());
         Item("Import media…", ImportMedia);
         menu.Items.Add(new Separator());
         Item("Settings…", () => OpenSettings(0));
         menu.IsOpen = true;
+    }
+
+    /// <summary>Green ticks on the stages that are finished, so progress through the video is visible at a glance.</summary>
+    void UpdateStageDone()
+    {
+        var p = Session.P;
+        stageDone[Stage.Record].Visibility = p.Narration.MediaId is not null ? Visibility.Visible : Visibility.Collapsed;
+        stageDone[Stage.Clean].Visibility = p.Narration.Processed ? Visibility.Visible : Visibility.Collapsed;
+        stageDone[Stage.Edit].Visibility = p.Slots.Count > 0 && p.Slots.All(s => Derive.StatusOf(p, s) != SlotStatus.Empty) ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    void UpdateSaved()
+    {
+        bool dirty = Session.Doc.Dirty;
+        if (dirty == shownDirty) return;
+        shownDirty = dirty;
+        saved.Background = dirty ? Theme.WarnBrush : Theme.OkBrush;
+        savedText.Text = dirty ? "Unsaved" : "Saved";
     }
 
     ProjectsWindow? projectsWindow;
@@ -203,10 +235,9 @@ public sealed class MainWindow : Window
         export.Visibility = stage == Stage.Export ? Visibility.Visible : Visibility.Collapsed;
         foreach (var (k, p) in pills)
         {
-            p.Background = k == stage ? Theme.AccentSoft : Brushes.Transparent;
-            p.Foreground = k == stage ? Theme.TextBrush : Theme.MutedBrush;
-            p.FontWeight = k == stage ? FontWeights.SemiBold : FontWeights.Normal;
-            p.BorderThickness = new Thickness(0);
+            Ui.SetPill(p, k == stage, accent: true);
+            // Green ticks, except on the accent pill where they take its dark text color.
+            if (k == stage) stageDone[k].ClearValue(TextBlock.ForegroundProperty); else stageDone[k].Foreground = Theme.OkBrush;
         }
         renderer.Invalidate();
     }
@@ -214,7 +245,7 @@ public sealed class MainWindow : Window
     void UpdateTitle()
     {
         projectName.Text = Session.P.Name;
-        projectName.ToolTip = Session.P.Name;
+        UpdateStageDone();
         Title = $"{Session.P.Name} · Cutroom";
     }
 
@@ -229,7 +260,7 @@ public sealed class MainWindow : Window
     void UpdateAi()
     {
         var available = Session.Ai.Available();
-        ai.Text = available.Count == 0 ? "AI off" : "AI: " + available[0].Name;
+        ai.Text = available.Count == 0 ? "AI off" : "AI · " + available[0].Name;
         ai.ToolTip = available.Count == 0 ? "Install and sign in to Claude Code or Codex to turn on the AI helpers." : "Runs on your subscription through the CLI you're signed into. No API keys.";
     }
 
@@ -246,6 +277,7 @@ public sealed class MainWindow : Window
     void OnFrame(object? sender, EventArgs e)
     {
         Session.Tick();
+        UpdateSaved();
         if (Current == Stage.Clean) clean.Tick();
         if (Current == Stage.Edit || edit.PopoutOpen) renderer.Render();
     }

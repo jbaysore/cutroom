@@ -11,9 +11,9 @@ namespace Cutroom.App;
 public sealed class ExportView : Grid
 {
     readonly Session s;
-    readonly TextBox fileName = new() { Margin = new Thickness(0, 0, 0, 10) };
+    readonly TextBox fileName = new() { Margin = new Thickness(0, 0, 0, 4) };
     readonly StackPanel issues = new();
-    readonly ProgressBar bar = new() { Height = 8, Maximum = 1, Margin = new Thickness(0, 10, 0, 6) };
+    readonly ProgressBar bar = new() { Maximum = 1, Margin = new Thickness(0, 16, 0, 8), Visibility = Visibility.Collapsed };
     readonly TextBlock status = Ui.Text("", 12, true);
     readonly Button export;
     readonly Button cancelButton;
@@ -29,24 +29,48 @@ public sealed class ExportView : Grid
         ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(45, GridUnitType.Star) });
         ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
         ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(55, GridUnitType.Star) });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         export = Ui.Button("Export video", () => _ = Export(), primary: true);
+        export.Margin = new Thickness(0);
         cancelButton = Ui.Button("Cancel", () => cancel?.Cancel());
         cancelButton.Visibility = Visibility.Collapsed;
         reveal = Ui.Button("Show in Explorer", () => { if (lastOutput is not null) Process.Start("explorer.exe", $"/select,\"{lastOutput}\""); });
         reveal.Visibility = Visibility.Collapsed;
+        var header = Ui.PageHeader("Export", "A YouTube-ready video, with captions, chapters and your description saved next to it.", reveal, cancelButton, export);
+        SetColumnSpan(header, 3);
+        Children.Add(header);
+
+        // The preset as a short spec list instead of a sentence.
+        var spec = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+        spec.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+        spec.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        string[][] rows = [["Video", "1920×1080, 60 fps, H.264 on your AMD GPU (40 Mbps)"], ["Audio", "AAC 320 kbps, −14 LUFS, −1 dBTP ceiling"], ["Alongside", "Captions (.srt), chapters, description"]];
+        for (int i = 0; i < rows.Length; i++)
+        {
+            spec.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var k = Ui.Text(rows[i][0], 12.5, true);
+            var v = Ui.Text(rows[i][1], 12.5);
+            k.Margin = v.Margin = new Thickness(0, 2, 0, 2);
+            SetRow(k, i); SetRow(v, i); SetColumn(v, 1);
+            spec.Children.Add(k); spec.Children.Add(v);
+        }
         var left = Ui.Stack(
             Ui.Header("YouTube 1080p60"),
-            Ui.Text("H.264 on your AMD GPU (40 Mbps), AAC 320 kbps, loudness −14 LUFS with a −1 dBTP ceiling. Captions (.srt) and chapters are saved next to the video.", 12, true),
-            new Border { Height = 12 },
-            Ui.Text("File name", 12, true), fileName,
+            spec,
+            Ui.SectionLabel("File name"), fileName,
+            Ui.SectionLabel("Before you export"),
             issues,
-            Ui.Row(export, cancelButton, reveal),
             bar, status);
         var leftCard = Ui.Card(Ui.Scroll(left), 18);
+        SetRow(leftCard, 1);
+        leftCard.VerticalAlignment = VerticalAlignment.Top;
         SetColumn(leftCard, 0);
         Children.Add(leftCard);
         var rightCard = Ui.Card(Ui.Scroll(package), 18);
+        SetRow(rightCard, 1);
+        rightCard.VerticalAlignment = VerticalAlignment.Top;
         SetColumn(rightCard, 2);
         Children.Add(rightCard);
         IsVisibleChanged += (_, _) => { if (IsVisible) { RefreshIssues(); BuildPackage(); } };
@@ -67,16 +91,24 @@ public sealed class ExportView : Grid
         if (fileName.Text.Length == 0 || lastOutput is null) fileName.Text = Derive.SafeFileName(s.P.Name) + ".mp4";
         issues.Children.Clear();
         var found = Exporter.PreFlight(s.P, s.Settings, out var firstVisualGap);
-        if (found.Count == 0) { issues.Children.Add(Ui.Text("✓ Ready to export.", 12)); return; }
-        issues.Children.Add(Ui.Text("Before you export:", 12, true));
-        foreach (var i in found) issues.Children.Add(new TextBlock { Text = "• " + i, Foreground = Theme.B(Theme.Sub), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 2) });
+        if (found.Count == 0) { issues.Children.Add(Check("✓", Theme.OkBrush, "Everything is in place. Ready to export.")); return; }
+        foreach (var i in found) issues.Children.Add(Check("!", Theme.WarnBrush, i));
         if (firstVisualGap is { } frame)
         {
             var go = Ui.Button("Go to first gap", () => GoToVisualGap?.Invoke(frame));
             go.Name = "GoToVisualGap";
             issues.Children.Add(Ui.Row(go));
         }
-        issues.Children.Add(new Border { Height = 8 });
+    }
+
+    /// <summary>One pre-flight row: a colored mark and the message.</summary>
+    static FrameworkElement Check(string mark, System.Windows.Media.Brush color, string text)
+    {
+        var m = new TextBlock { Text = mark, Foreground = color, FontWeight = FontWeights.Bold, Width = 18, Margin = new Thickness(2, 0, 0, 0) };
+        var t = Ui.Text(text, 13);
+        var row = Ui.Columns((m, GridLength.Auto), (t, new GridLength(1, GridUnitType.Star)));
+        row.Margin = new Thickness(0, 3, 0, 3);
+        return row;
     }
 
     async Task Export()
@@ -88,7 +120,7 @@ public sealed class ExportView : Grid
         s.SaveSafely();
         cancel = new CancellationTokenSource();
         export.IsEnabled = false;
-        cancelButton.Visibility = Visibility.Visible;
+        cancelButton.Visibility = bar.Visibility = Visibility.Visible;
         reveal.Visibility = Visibility.Collapsed;
         // Export works on a snapshot so you can keep editing while it renders.
         var snapshot = ProjectJson.Deserialize(ProjectJson.Serialize(s.P));
@@ -113,7 +145,7 @@ public sealed class ExportView : Grid
             cancel.Dispose();
             cancel = null;
             export.IsEnabled = true;
-            cancelButton.Visibility = Visibility.Collapsed;
+            cancelButton.Visibility = bar.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -124,18 +156,19 @@ public sealed class ExportView : Grid
         package.Children.Clear();
         var profile = s.Settings.Channel;
         package.Children.Add(Ui.Header("YouTube packaging"));
-        package.Children.Add(Ui.Text("Titles, description and tags drafted in your channel's style. Your links and sign-off are added word for word, then the chapters.", 12, true));
-        package.Children.Add(new Border { Height = 10 });
-        if (!s.Ai.Enabled) package.Children.Add(Ui.Text("AI is off: install and sign in to Claude Code or Codex to draft packaging. Chapters still work below.", 12, true));
+        package.Children.Add(Ui.Text("Titles, description and tags drafted in your channel's style. Your links and sign-off are added word for word, then the chapters.", 12.5, true));
+        if (!s.Ai.Enabled) package.Children.Add(Ui.Text("AI is off: install and sign in to Claude Code or Codex to draft packaging. Chapters still work below.", 12.5, true));
 
-        package.Children.Add(Ui.Text(profile.PastTitles.Count == 0 ? "Channel style: not set up yet." : $"Learned from {profile.PastTitles.Count} past videos.", 12, true));
-        package.Children.Add(Ui.Row(
-            Ui.Button("Learn from my channel…", () => _ = LearnChannel()),
-            Ui.Button("Edit style and fixed text…", EditProfile)));
-
-        var draft = Ui.Button("Draft package", () => _ = Draft(), primary: true);
+        package.Children.Add(Ui.SectionLabel("Channel style"));
+        package.Children.Add(Ui.Text(profile.PastTitles.Count == 0 ? "Not set up yet. Cutroom can learn it from your recent videos." : $"Learned from {profile.PastTitles.Count} past videos.", 13));
+        var draft = Ui.Button("Draft package", () => _ = Draft(), tip: "Draft titles, description and tags from the script");
         draft.IsEnabled = s.Ai.Enabled && s.P.Script is not null;
-        package.Children.Add(Ui.Row(draft));
+        var actions = Ui.Row(
+            Ui.Button("Learn from my channel…", () => _ = LearnChannel()),
+            Ui.Button("Edit style and fixed text…", EditProfile, kind: ButtonKind.Ghost),
+            draft);
+        actions.Margin = new Thickness(0, 10, 0, 0);
+        package.Children.Add(actions);
 
         var chapters = Derive.Chapters(s.P);
         if (s.P.Package is { Length: > 0 } text)
@@ -145,8 +178,9 @@ public sealed class ExportView : Grid
             package.Children.Add(box);
             package.Children.Add(Ui.Row(Ui.Button("Copy all", () => Clipboard.SetText(box.Text))));
         }
-        package.Children.Add(Ui.Header("Chapters"));
-        package.Children.Add(new TextBox { Text = chapters.Length > 0 ? chapters : "Add headings to your script to get chapters.", IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 8) });
+        package.Children.Add(Ui.SectionLabel("Chapters"));
+        if (chapters.Length == 0) package.Children.Add(Ui.Text("Chapters come from the section headers on the timeline. Add headings to your script, or Section cards in Edit.", 13, true));
+        else package.Children.Add(new TextBox { Text = chapters, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
         if (chapters.Length > 0) package.Children.Add(Ui.Row(Ui.Button("Copy chapters", () => Clipboard.SetText(chapters))));
     }
 

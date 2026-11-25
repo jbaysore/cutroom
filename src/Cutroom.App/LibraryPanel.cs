@@ -35,8 +35,14 @@ public sealed class LibraryPanel : DockPanel
         this.role = role;
         LastChildFill = true;
         search.ToolTip = "Search names, folders, notes and #tags";
-        SetDock(search, Dock.Top);
-        Children.Add(search);
+        // Placeholder text over the empty search box.
+        var hint = Ui.Text(role == LibraryRole.Footage ? "⌕  Search footage, notes or #tags" : "⌕  Search music, SFX, images or #tags", 13, true);
+        hint.IsHitTestVisible = false;
+        hint.Margin = new Thickness(12, 0, 0, 8);
+        search.TextChanged += (_, _) => hint.Visibility = search.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var searchBox = new Grid { Children = { search, hint } };
+        SetDock(searchBox, Dock.Top);
+        Children.Add(searchBox);
         SetDock(filters, Dock.Top);
         Children.Add(filters);
         if (role == LibraryRole.Asset)
