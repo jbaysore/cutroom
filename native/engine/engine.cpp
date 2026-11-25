@@ -522,8 +522,10 @@ struct Engine
         if (!m.Advance(t) && m.converted) return true;
         if (!m.hasCur) return true;
         AVFrame* f = m.cur;
+        // Downscaling (1440p sources to 1080p export) uses Lanczos to keep fine detail; same-size conversion stays cheap.
+        int filter = m.outH < f->height ? SWS_LANCZOS | SWS_ACCURATE_RND : SWS_BILINEAR;
         m.sws = sws_getCachedContext(m.sws, f->width, f->height, static_cast<AVPixelFormat>(f->format),
-            m.outW, m.outH, AV_PIX_FMT_BGRA, SWS_BILINEAR, nullptr, nullptr, nullptr);
+            m.outW, m.outH, AV_PIX_FMT_BGRA, filter, nullptr, nullptr, nullptr);
         if (!m.sws) return Fail("Could not convert video frame");
         uint8_t* dst[4] = { m.pixels.data() };
         int stride[4] = { m.outW * 4 };

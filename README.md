@@ -37,7 +37,22 @@ Project Hub's **Restart** installs a newer commit from this PC's Cutroom `main` 
 
 ```powershell
 scripts\build.ps1          # bootstrap + native engine + managed build (Release)
-scripts\check.ps1          # Debug build, fast tests, UI smoke (the project's check command)
-scriptsuild-whisper-vulkan.ps1  # GPU whisper.cpp only (build.ps1 runs it; -Force rebuilds)
+scripts\check.ps1          # Debug build, fast tests, golden images, UI smoke at 100% and 150% scaling (the project's check command)
+scripts\build-whisper-vulkan.ps1  # GPU whisper.cpp only (build.ps1 runs it; -Force rebuilds)
 scripts\test-speech.ps1    # model-based speech tests and the end-to-end export test
+scripts\eval-cleanup.ps1   # score narration cleanup on your own recordings in tests\corpus (see below)
+scripts\bench.ps1          # performance budgets: project open, scrub, cleanup, export (slow)
 ```
+
+### Cleanup corpus
+
+`scripts\eval-cleanup.ps1` measures how well cleanup does on real narrations. Put each recording in its own folder under `tests\corpus\` (gitignored):
+
+- `narration.wav`, or the OBS/Streamlabs video file named `narration.*`
+- `script.txt` or `script.docx`
+- `expected.txt`: what the finished narration should say, in order. Keep ad-libs; leave out retakes and false starts.
+- `marks.txt` (optional): retake-mark times in seconds, one per line
+
+The report (`artifacts\eval-cleanup.md`) lists, per recording, substantive words wrongly removed (must be 0), retake recall (target 95%) and word accuracy (target 98%). It uses your Settings for the whisper model, noise removal and GPU.
+
+Golden images for the engine tests live in `tests\Cutroom.Tests\golden`. After an intended visual change, rerun the tests with `CUTROOM_UPDATE_GOLDEN=1`, check the new images and commit them.

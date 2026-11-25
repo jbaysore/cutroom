@@ -478,10 +478,11 @@ public sealed class Composer : IDisposable
         var tex = Texture($"cap:{v.Caption.Caption.Text}|{preset.Id}|{preset.FontFamily}|{preset.Size}|{preset.Fill}|{preset.Outline}|{preset.OutlineWidth}|{preset.ShadowOpacity}",
             () => TextRaster.Caption(v.Caption.Caption.Text, preset));
         if (tex is null) return;
-        double alpha = 1, scale = 1;
+        // Presets are sized for a 1080p frame.
+        double alpha = 1, scale = H / 1080.0;
         long into = t - v.Caption.Start;
         if (preset.Animation == "Fade") alpha = Math.Clamp(into / (double)Time.FromMs(120), 0, 1);
-        if (preset.Animation == "Pop") { scale = .9 + .1 * Ease.Apply(Easing.Bouncy, into / (double)Time.FromMs(180)); }
+        if (preset.Animation == "Pop") { scale *= .9 + .1 * Ease.Apply(Easing.Bouncy, into / (double)Time.FromMs(180)); }
         DrawTex(tex.Value, .5, preset.Y, (float)alpha, scale);
     }
 

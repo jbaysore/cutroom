@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.RegularExpressions;
@@ -157,22 +158,49 @@ public static class Exporter
                 using var engine = new NativeEngine(width, height);
                 using var composer = new Composer(engine, settings);
                 composer.Prepare(p, -1);
-                var frame = new byte[width * height * 4];
                 var stdin = ffmpeg.StandardInput.BaseStream;
-                long frames = duration / Time.Frame;
-                for (long f = 0; f < frames; f++)
+                // Frames go to the encoder on a writer task, so composing the next frame overlaps the pipe write.
+                using var free = new BlockingCollection<byte[]>();
+                using var full = new BlockingCollection<byte[]>();
+                for (int i = 0; i < 3; i++) free.Add(new byte[width * height * 4]);
+                using var abort = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                Exception? writeError = null;
+                var writer = Task.Run(() =>
                 {
-                    ct.ThrowIfCancellationRequested();
-                    composer.Draw(p, f * Time.Frame);
-                    engine.Readback(frame);
-                    stdin.Write(frame);
-                    if (f % 30 == 0)
+                    try
                     {
-                        double fraction = (f + 1) / (double)frames;
-                        var elapsed = started.Elapsed;
-                        progress?.Report(new ExportProgress(fraction, elapsed, TimeSpan.FromSeconds(elapsed.TotalSeconds / fraction * (1 - fraction)), "Rendering"));
+                        foreach (var buffer in full.GetConsumingEnumerable())
+                        {
+                            stdin.Write(buffer);
+                            free.Add(buffer);
+                        }
+                    }
+                    catch (Exception ex) { writeError = ex; abort.Cancel(); }
+                });
+                try
+                {
+                    long frames = duration / Time.Frame;
+                    for (long f = 0; f < frames; f++)
+                    {
+                        var frame = free.Take(abort.Token);
+                        composer.Draw(p, f * Time.Frame);
+                        engine.Readback(frame);
+                        full.Add(frame, abort.Token);
+                        if (f % 30 == 0)
+                        {
+                            double fraction = (f + 1) / (double)frames;
+                            var elapsed = started.Elapsed;
+                            progress?.Report(new ExportProgress(fraction, elapsed, TimeSpan.FromSeconds(elapsed.TotalSeconds / fraction * (1 - fraction)), "Rendering"));
+                        }
                     }
                 }
+                catch (OperationCanceledException) when (writeError is not null) { }
+                finally
+                {
+                    full.CompleteAdding();
+                    writer.Wait(CancellationToken.None);
+                }
+                if (writeError is not null) throw writeError;
                 stdin.Close();
             }
             catch (Exception ex) { renderError = ex; }

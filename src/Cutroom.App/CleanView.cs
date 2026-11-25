@@ -31,7 +31,7 @@ public sealed class CleanView : Grid, IDisposable
     };
     readonly Canvas markers = new() { Height = 22, ClipToBounds = true };
     readonly ContentControl settings = new();
-    readonly Button run, cancel, play, review, all, original, cut, toggle, scriptButton;
+    readonly Button run, cancel, play, review, all, sort, original, cut, toggle, scriptButton;
     readonly FrameworkElement listen, reviewPane, decisionActions;
     readonly Border scriptPane;
     readonly ColumnDefinition scriptGapColumn, scriptColumn;
@@ -65,6 +65,8 @@ public sealed class CleanView : Grid, IDisposable
         play = Ui.Button("Play cleaned narration", TogglePlayback, "clean.play", primary: true, tip: "Play or pause cleaned narration");
         review = Ui.Button("Review cuts", () => SetView(false));
         all = Ui.Button("All decisions", () => SetView(true));
+        sort = Ui.Button("", ToggleSort, tip: "Order the list by time, or with the decisions cleanup was least sure about first");
+        sort.Name = "ReviewSort";
         original = Ui.Button("Hear original", () => Audition(false), tip: "Hear the selected region with this cut lifted");
         cut = Ui.Button("Hear cut", () => Audition(true), tip: "Hear the selected region with this cut applied");
         toggle = Ui.Button("Restore audio", Toggle, "clean.toggle", tip: "Toggle the selected decision");
@@ -79,7 +81,7 @@ public sealed class CleanView : Grid, IDisposable
         passage.Margin = new Thickness(0, 6, 0, 6);
         listen = Ui.Card(Ui.Stack(Ui.Header("Cleaned narration"), summary, transport, seek, markers, passage, playbackStatus));
 
-        var reviewTop = Ui.Stack(Ui.Row(review, all), details, reason, decisionActions);
+        var reviewTop = Ui.Stack(Ui.Row(review, all, sort), details, reason, decisionActions);
         reviewTop.Margin = new Thickness(0, 0, 0, 8);
         reason.Margin = new Thickness(0, 4, 0, 8);
         details.MaxHeight = 85;
@@ -333,9 +335,18 @@ public sealed class CleanView : Grid, IDisposable
         PopulateList(select ?? Selected?.Id);
     }
 
+    void ToggleSort()
+    {
+        s.Settings.ReviewLeastSureFirst = !s.Settings.ReviewLeastSureFirst;
+        s.Settings.Save();
+        PopulateList(Selected?.Id);
+    }
+
     void PopulateList(string? select)
     {
-        visible = s.P.Narration.Decisions.Where(d => allDecisions || IsSpeechCut(d)).OrderBy(d => d.Start).ToList();
+        var shown = s.P.Narration.Decisions.Where(d => allDecisions || IsSpeechCut(d));
+        visible = (s.Settings.ReviewLeastSureFirst ? shown.OrderBy(d => d.Confidence).ThenBy(d => d.Start) : shown.OrderBy(d => d.Start)).ToList();
+        sort.Content = s.Settings.ReviewLeastSureFirst ? "Order: least sure first" : "Order: by time";
         list.Items.Clear();
         foreach (var d in visible)
         {

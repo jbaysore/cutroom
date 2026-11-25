@@ -34,6 +34,25 @@ internal static class Media
         if (p.ExitCode != 0) throw new InvalidOperationException(err);
     }
 
+    static string Cached(string name, Action<string> make)
+    {
+        lock (gate)
+        {
+            var path = Path.Combine(Path.GetTempPath(), name);
+            if (!File.Exists(path)) make(path);
+            return path;
+        }
+    }
+
+    /// <summary>Two seconds of ffmpeg's moving test pattern, 1080p60.</summary>
+    public static string TestPattern() => Cached("cutroom-testsrc2-1080p.mp4",
+        path => Run("-f", "lavfi", "-i", "testsrc2=s=1920x1080:r=60:d=2", "-c:v", "mpeg4", "-q:v", "2", path));
+
+    /// <summary>1440p60 vertical stripes four pixels apart, lossless, for checking downscale sharpness.</summary>
+    public static string FineStripes1440() => Cached("cutroom-stripes-1440p.mkv",
+        path => Run("-f", "lavfi", "-i", @"color=s=2560x1440:r=60:d=1,format=yuv444p,geq=lum=if(lt(mod(X\,4)\,2)\,235\,16):cb=128:cr=128",
+            "-c:v", "ffv1", path));
+
     /// <summary>One second of red then one second of blue at 60 fps, 320x180.</summary>
     public static string RedThenBlue()
     {
@@ -95,6 +114,7 @@ public class EngineTests
         var edge = Pixel(frame, 320, 166, 90);
         Assert.InRange(inside.R, 100, 140);
         Assert.InRange(edge.R, 10, 110);
+        GoldenImage.Assert("blur-dim", frame, 320, 180);
     }
 
     [Fact]
@@ -109,6 +129,7 @@ public class EngineTests
         e.Readback(frame);
         var center = Pixel(frame, 320, 160, 90);
         Assert.True(center.R > 150 && center.G > 150, $"{center}");
+        GoldenImage.Assert("paper", frame, 320, 180);
     }
 
     [Fact]
@@ -162,8 +183,65 @@ public class EngineTests
                 }
             Assert.True(light > 1000, $"light={light}");
             Assert.True(dark > 50, $"dark={dark}");
+            GoldenImage.Assert("background-card-subtitles", frame, 640, 360);
         });
     }
+
+    [Fact]
+    public async Task ComposerDrawsZoomAndFreezeOutline()
+    {
+        var video = await Cutroom.Library.MediaProbe.Probe(Media.TestPattern());
+        Sta.Run(() =>
+        {
+            var p = Project.CreateDefault("Golden");
+            p.Media.Add(video);
+            var zoomed = new Clip { MediaId = video.Id, Start = 0, Duration = Time.FromSeconds(1) };
+            zoomed.Effects.Add(new Effect { Kind = EffectKind.ZoomToBox, Duration = Time.FromSeconds(1), BoxX = .1, BoxY = .1, BoxW = .4, BoxH = .4 });
+            var frozen = new Clip { MediaId = video.Id, Start = Time.FromSeconds(1), Duration = Time.FromSeconds(1), SourceIn = Time.FromSeconds(1) };
+            frozen.Effects.Add(new Effect { Kind = EffectKind.FreezeOutline, Duration = Time.FromSeconds(1), Shape = ShapeKind.Ellipse, BoxX = .3, BoxY = .3, BoxW = .4, BoxH = .3 });
+            p.Track(TrackRole.Footage).Clips.AddRange([zoomed, frozen]);
+            using var e = new NativeEngine(640, 360);
+            using var c = new Composer(e, new AppSettings());
+            c.Prepare(p, 1);
+            var frame = new byte[640 * 360 * 4];
+            c.Draw(p, Time.FromSeconds(.5));
+            e.Readback(frame);
+            GoldenImage.Assert("zoom-to-box", frame, 640, 360);
+            c.Draw(p, Time.FromSeconds(1.8));
+            e.Readback(frame);
+            GoldenImage.Assert("freeze-outline", frame, 640, 360);
+        });
+    }
+
+    /// <summary>1440p footage is decoded straight to 1080p; fine detail should survive that downscale instead of blurring.</summary>
+    [Fact]
+    public void DownscaleKeepsFineDetail()
+    {
+        var path = Media.FineStripes1440();
+        using var e = new NativeEngine(1920, 1080);
+        int m = e.Open(path, 1080);
+        Assert.Equal(1920, e.Info(m).Width);
+        e.Begin();
+        var l = Layer.Full(LayerKind.Video);
+        l.Media = m;
+        l.SourceSeconds = .2;
+        e.Draw(l);
+        var frame = new byte[1920 * 1080 * 4];
+        e.Readback(frame);
+        double sum = 0, sq = 0;
+        int n = 0;
+        for (int x = 400; x < 1500; x++)
+        {
+            double v = Pixel(frame, 1920, x, 540).G;
+            sum += v; sq += v * v; n++;
+        }
+        double contrast = Math.Sqrt(sq / n - sum / n * (sum / n));
+        Console.WriteLine($"Downscaled stripe contrast: {contrast:0.0}");
+        Assert.True(contrast > DetailContrastFloor, $"stripe contrast {contrast:0.0} after downscale");
+    }
+
+    // Bilinear measured 85 here and Lanczos 104.
+    const double DetailContrastFloor = 95;
 
     [Fact]
     public void CardLayoutFitsLongTextAndFlagsOverflow()

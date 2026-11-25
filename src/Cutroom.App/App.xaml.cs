@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -20,6 +21,10 @@ public partial class App : Application
         Theme.Apply(Resources);
         int smoke = Array.IndexOf(e.Args, "--smoke");
         if (smoke >= 0 && smoke + 1 < e.Args.Length) { ShutdownMode = ShutdownMode.OnExplicitShutdown; _ = Smoke(e.Args[smoke + 1], e.Args.Skip(smoke + 2).FirstOrDefault()); return; }
+        int eval = Array.IndexOf(e.Args, "--eval-cleanup");
+        if (eval >= 0 && eval + 2 < e.Args.Length) { ShutdownMode = ShutdownMode.OnExplicitShutdown; _ = EvalCleanup(e.Args[eval + 1], e.Args[eval + 2]); return; }
+        int bench = Array.IndexOf(e.Args, "--bench-open");
+        if (bench >= 0 && bench + 2 < e.Args.Length) { ShutdownMode = ShutdownMode.OnExplicitShutdown; _ = BenchOpen(e.Args[bench + 1], e.Args[bench + 2]); return; }
         DispatcherUnhandledException += OnUnhandled;
         var settings = AppSettings.Load();
         var path = e.Args.FirstOrDefault(a => a.EndsWith(ProjectCatalog.Extension, StringComparison.OrdinalIgnoreCase));
@@ -80,6 +85,65 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// Benchmark (scripts/bench.ps1): seconds from opening a project file to the Edit stage drawn and idle, written to
+    /// <paramref name="reportPath"/>. Run with CUTROOM_DATA pointing at a scratch folder.
+    /// </summary>
+    async Task BenchOpen(string project, string reportPath)
+    {
+        int code = 0;
+        try
+        {
+            var settings = AppSettings.Load();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var window = new MainWindow(settings, Document.Open(Path.GetFullPath(project)));
+            ConfigureSmokeWindow(window);
+            window.Width = 2560;
+            window.Height = 1400;
+            MainWindow = window;
+            window.Show();
+            window.Show(Stage.Edit);
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+            sw.Stop();
+            await File.WriteAllTextAsync(reportPath, sw.Elapsed.TotalSeconds.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture));
+            window.Close();
+        }
+        catch (Exception ex)
+        {
+            await File.WriteAllTextAsync(reportPath, ex.ToString());
+            code = 1;
+        }
+        Shutdown(code);
+    }
+
+    /// <summary>
+    /// Cleanup evaluation (scripts/eval-cleanup.ps1): cleans every corpus case with the user's speech settings and writes
+    /// a Markdown report. Exits 1 if any case removed substantive words, 2 if the run itself failed.
+    /// </summary>
+    async Task EvalCleanup(string corpus, string reportPath)
+    {
+        int code;
+        var log = Path.ChangeExtension(reportPath, ".log");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(reportPath))!);
+            File.WriteAllText(log, "");
+            var settings = AppSettings.Load();
+            Speech.Transcriber.PreferGpu = settings.GpuTranscription;
+            var scores = await Task.Run(() => Speech.CleanupCorpus.Run(corpus, settings.Denoiser, settings.WhisperModel,
+                line => File.AppendAllText(log, line + Environment.NewLine), CancellationToken.None));
+            if (scores.Count == 0) throw new InvalidOperationException($"No cases with expected.txt in {corpus}");
+            await File.WriteAllTextAsync(reportPath, Speech.CleanupEvaluation.Report(scores));
+            code = scores.All(s => s.Passes) ? 0 : 1;
+        }
+        catch (Exception ex)
+        {
+            File.AppendAllText(log, ex + Environment.NewLine);
+            code = 2;
+        }
+        Shutdown(code);
+    }
+
+    /// <summary>
     /// UI smoke: renders every stage off-screen at 1440p and 1080p window sizes to PNGs, then exits (code 1 on any error).
     /// Run with CUTROOM_DATA pointing at a scratch folder so real settings and projects are untouched.
     /// </summary>
@@ -104,16 +168,21 @@ public partial class App : Application
             ConfigureSmokeWindow(window);
             MainWindow = window;
             window.Show();
-            foreach (var (label, w, h) in new[] { ("1440p", 2560, 1400), ("1080p", 1920, 1040) })
+            // Maximized window sizes in device-independent units: 1440p and 1080p at 100%, 1440p at 150%, and
+            // 1080p at 150% (the same layout as 1440p at 200%). Scaled sizes render at the matching dpi.
+            var clipped = new List<string>();
+            foreach (var (label, w, h, scale) in new[] { ("1440p", 2560, 1400, 1.0), ("1080p", 1920, 1040, 1.0), ("1440p-150", 1707, 933, 1.5), ("1080p-150", 1280, 693, 1.5) })
             {
                 window.Width = w;
                 window.Height = h;
                 foreach (var stage in Enum.GetValues<Stage>())
                 {
                     window.Show(stage);
-                    await Capture(window, Path.Combine(outDir, $"{label}-{stage}.png"));
+                    await Capture(window, Path.Combine(outDir, $"{label}-{stage}.png"), scale);
+                    clipped.AddRange(ClippedControls(window).Select(c => $"{label} {stage}: {c}"));
                 }
             }
+            if (clipped.Count > 0) throw new InvalidOperationException("Controls are cut off:\n" + string.Join("\n", clipped));
             if (next is not null)
             {
                 await CheckEditingWorkflow(window, Path.Combine(outDir, "projects.png"));
@@ -259,15 +328,68 @@ public partial class App : Application
         window.ShowInTaskbar = false;
     }
 
-    async Task Capture(Window window, string path)
+    /// <summary>
+    /// Visible buttons and inputs that are cut off by a panel or the window edge, or that overlap each other. Controls
+    /// inside scroll viewers are skipped, since scrolling them into view is expected.
+    /// </summary>
+    static List<string> ClippedControls(Window window)
+    {
+        var root = (FrameworkElement)window.Content;
+        var problems = new List<string>();
+        var controls = new List<(string Name, Rect Box)>();
+        var stack = new Stack<(DependencyObject Node, bool Scrolled)>([(root, false)]);
+        while (stack.Count > 0)
+        {
+            var (node, scrolled) = stack.Pop();
+            if (node is UIElement { IsVisible: false }) continue;
+            if (node is ScrollViewer or ScrollContentPresenter) scrolled = true;
+            if (!scrolled && node is ButtonBase or TextBox or ComboBox && node is FrameworkElement e)
+            {
+                var name = e.Name.Length > 0 ? e.Name : (e as ContentControl)?.Content as string ?? e.GetType().Name;
+                var box = e.TransformToAncestor(root).TransformBounds(new Rect(0, 0, e.ActualWidth, e.ActualHeight));
+                var shown = VisibleBounds(e, root);
+                // A panel that runs out of room arranges a button narrower than its label instead of clipping it.
+                e.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                var needed = new Size(e.DesiredSize.Width - e.Margin.Left - e.Margin.Right, e.DesiredSize.Height - e.Margin.Top - e.Margin.Bottom);
+                e.InvalidateMeasure();
+                if (e is ButtonBase && (needed.Width > e.ActualWidth + 1 || needed.Height > e.ActualHeight + 1)) problems.Add($"{name} is squeezed");
+                else if (shown.IsEmpty || shown.Width < box.Width - 1 || shown.Height < box.Height - 1) problems.Add($"{name} is cut off");
+                else controls.Add((name, box));
+                continue;
+            }
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++) stack.Push((VisualTreeHelper.GetChild(node, i), scrolled));
+        }
+        for (int i = 0; i < controls.Count; i++)
+            for (int j = i + 1; j < controls.Count; j++)
+                if (Rect.Intersect(controls[i].Box, controls[j].Box) is { IsEmpty: false } overlap && overlap.Width > 1 && overlap.Height > 1)
+                    problems.Add($"{controls[i].Name} overlaps {controls[j].Name}");
+        return problems;
+    }
+
+    /// <summary>The part of an element left after its own layout clip and every ancestor's clip, in root coordinates.</summary>
+    static Rect VisibleBounds(FrameworkElement element, FrameworkElement root)
+    {
+        var shown = new Rect(0, 0, root.ActualWidth, root.ActualHeight);
+        for (DependencyObject? node = element; node is not null && node != root; node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is not FrameworkElement f) continue;
+            var toRoot = f.TransformToAncestor(root);
+            if (LayoutInformation.GetLayoutClip(f) is { } clip) shown.Intersect(toRoot.TransformBounds(clip.Bounds));
+            if (f.ClipToBounds || f != element) shown.Intersect(toRoot.TransformBounds(new Rect(0, 0, f.ActualWidth, f.ActualHeight)));
+            if (shown.IsEmpty) break;
+        }
+        return shown;
+    }
+
+    async Task Capture(Window window, string path, double scale = 1)
     {
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
         await Task.Delay(300);
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
         var root = (FrameworkElement)window.Content;
         var dpi = VisualTreeHelper.GetDpi(window);
-        var bitmap = new RenderTargetBitmap((int)(root.ActualWidth * dpi.DpiScaleX), (int)(root.ActualHeight * dpi.DpiScaleY),
-            dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+        double sx = Math.Max(scale, dpi.DpiScaleX), sy = Math.Max(scale, dpi.DpiScaleY);
+        var bitmap = new RenderTargetBitmap((int)(root.ActualWidth * sx), (int)(root.ActualHeight * sy), 96 * sx, 96 * sy, PixelFormats.Pbgra32);
         var background = new DrawingVisual();
         using (var dc = background.RenderOpen()) dc.DrawRectangle(Theme.BgBrush, null, new Rect(0, 0, root.ActualWidth, root.ActualHeight));
         bitmap.Render(background);

@@ -93,6 +93,8 @@ public static class CleanupEngine
         // 3. 16 kHz copy for the speech models.
         var wav16 = Cache($"{fp}-clean-{settings.Denoiser}-16k.wav");
         if (!File.Exists(wav16)) await Convert(clean, wav16, 16000, seconds, null, ct).ConfigureAwait(false);
+        // Loudness only needs the denoised audio, so it is measured while the speech models run.
+        var loudness = Loudness(clean, ct);
         var audio = Wav.ReadMono(wav16);
         long duration = Time.FromSeconds(audio.Length / 16000.0);
 
@@ -109,14 +111,22 @@ public static class CleanupEngine
             await File.WriteAllTextAsync(wordsCache, JsonSerializer.Serialize(raw), ct).ConfigureAwait(false);
         }
 
-        // 5. Refine word edges with forced alignment; 6. speech probabilities.
-        Report("Finding exact word edges", 0);
-        using var aligner = new CtcAligner(Models.PathOf(Models.Wav2Vec2), Models.PathOf(Models.Wav2Vec2Vocab));
-        var words = Refine(raw, audio, aligner, new Progress<double>(p => Report("Finding exact word edges", p)), ct);
-        foreach (var w in words)
+        // 5. Refine word edges with forced alignment (cached: it is the slow part of a rerun after a pacing change);
+        // 6. speech probabilities. The aligner loads only when something needs it.
+        using var aligner = new LazyAligner();
+        var alignedCache = Path.ChangeExtension(wordsCache, null) + "-aligned-v1.json";
+        List<Word> words;
+        if (File.Exists(alignedCache)) words = JsonSerializer.Deserialize<List<Word>>(await File.ReadAllTextAsync(alignedCache, ct).ConfigureAwait(false))!;
+        else
         {
-            w.End = Math.Min(w.End, duration);
-            w.Start = Math.Min(w.Start, Math.Max(0, w.End - Time.FromMs(10)));
+            Report("Finding exact word edges", 0);
+            words = Refine(raw, audio, aligner.Get(), new Progress<double>(p => Report("Finding exact word edges", p)), ct);
+            foreach (var w in words)
+            {
+                w.End = Math.Min(w.End, duration);
+                w.Start = Math.Min(w.Start, Math.Max(0, w.End - Time.FromMs(10)));
+            }
+            await File.WriteAllTextAsync(alignedCache, JsonSerializer.Serialize(words), ct).ConfigureAwait(false);
         }
 
         var vadCache = Cache($"{fp}-{settings.Denoiser}.vad");
@@ -137,15 +147,34 @@ public static class CleanupEngine
         {
             int s0 = (int)Math.Clamp(Time.ToSeconds(a) * 16000, 0, audio.Length), s1 = (int)Math.Clamp(Time.ToSeconds(b) * 16000, s0, audio.Length);
             if (s1 - s0 < 3200) return "";
-            return aligner.Greedy(aligner.Emissions(audio.AsSpan(s0, s1 - s0)));
+            return aligner.Get().Greedy(aligner.Get().Emissions(audio.AsSpan(s0, s1 - s0)));
         }
         var decisions = CleanupPlanner.Plan(new PlannerInput(words, script, vad, features, retakeMarks, settings, duration, Verbatim));
 
         // 8. Loudness to the narration target.
         Report("Matching loudness", 0);
-        double gain = settings.TargetLufs - await IntegratedLoudness(clean, ct).ConfigureAwait(false);
+        double gain = settings.TargetLufs - await loudness.ConfigureAwait(false);
         Report("Done", 1);
         return new CleanupResult { CleanPath = clean, GainDb = Math.Clamp(gain, -20, 30), Duration = duration, Words = words, Decisions = decisions };
+    }
+
+    /// <summary>Loads the forced aligner on first use, so a fully cached rerun never pays for it.</summary>
+    sealed class LazyAligner : IDisposable
+    {
+        CtcAligner? aligner;
+        public CtcAligner Get() => aligner ??= new CtcAligner(Models.PathOf(Models.Wav2Vec2), Models.PathOf(Models.Wav2Vec2Vocab));
+        public void Dispose() => aligner?.Dispose();
+    }
+
+    /// <summary>Integrated loudness of the denoised narration, cached next to it.</summary>
+    static async Task<double> Loudness(string clean, CancellationToken ct)
+    {
+        var cache = Path.ChangeExtension(clean, ".lufs");
+        if (File.Exists(cache) && double.TryParse(await File.ReadAllTextAsync(cache, ct).ConfigureAwait(false), NumberStyles.Float, CultureInfo.InvariantCulture, out var cached))
+            return cached;
+        double lufs = await IntegratedLoudness(clean, ct).ConfigureAwait(false);
+        await File.WriteAllTextAsync(cache, lufs.ToString("R", CultureInfo.InvariantCulture), ct).ConfigureAwait(false);
+        return lufs;
     }
 
     static float[] MemoryMarshalFloats(byte[] bytes) => System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(bytes).ToArray();
@@ -195,17 +224,18 @@ public static class CleanupEngine
         File.Copy(input, output, true);
     }
 
+    /// <summary>EBU R128 integrated loudness (ffmpeg's ebur128 filter, much faster than a loudnorm analysis pass).</summary>
     public static async Task<double> IntegratedLoudness(string path, CancellationToken ct)
     {
-        string log = "";
+        var log = new System.Text.StringBuilder();
         try
         {
-            await Tools.Run(Tools.Ffmpeg, ["-nostdin", "-hide_banner", "-i", path, "-af", "loudnorm=print_format=json", "-f", "null", "-"], ct,
-                onError: line => log += line + "\n").ConfigureAwait(false);
+            await Tools.Run(Tools.Ffmpeg, ["-nostdin", "-hide_banner", "-i", path, "-af", "ebur128=framelog=quiet", "-f", "null", "-"], ct,
+                onError: line => log.AppendLine(line)).ConfigureAwait(false);
         }
         catch (ToolException) { return -23; }
-        var m = Regex.Match(log, "\"input_i\"\\s*:\\s*\"(-?[\\d.]+|-inf)\"");
-        return m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : -23;
+        var m = Regex.Matches(log.ToString(), @"I:\s+(-?[\d.]+) LUFS");
+        return m.Count > 0 && double.TryParse(m[^1].Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : -23;
     }
 
     /// <summary>Snaps whisper's approximate word times to CTC forced-alignment edges, window by window.</summary>

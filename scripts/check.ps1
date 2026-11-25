@@ -3,10 +3,10 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 # The GPU whisper build is skipped to keep the check fast; it is used here if already built.
 & (Join-Path $PSScriptRoot 'build.ps1') -Configuration Debug -SkipWhisperGpu
-& dotnet test (Join-Path $projectRoot 'tests\Cutroom.Tests\Cutroom.Tests.csproj') -c Debug --no-build -nologo --filter 'Category!=Models&Category!=Live'
+& dotnet test (Join-Path $projectRoot 'tests\Cutroom.Tests\Cutroom.Tests.csproj') -c Debug --no-build -nologo --filter 'Category!=Models&Category!=Live&Category!=Bench'
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
 
-# UI smoke: open the real app off-screen with throwaway data, render every stage at 1440p and 1080p sizes.
+# UI smoke: open the real app off-screen with throwaway data, render every stage at 1440p and 1080p sizes, at 100% and 150% scaling.
 $smokeOut = Join-Path $projectRoot 'artifacts\smoke'
 $smokeData = Join-Path $projectRoot 'artifacts\smoke-data'
 Remove-Item -Recurse -Force $smokeOut, $smokeData -ErrorAction SilentlyContinue
@@ -17,6 +17,6 @@ try {
     if (-not $p.WaitForExit(120000)) { $p.Kill(); throw 'UI smoke timed out' }
     if ($p.ExitCode -ne 0) { throw "UI smoke failed: $(Get-Content (Join-Path $smokeOut 'smoke-error.txt') -Raw -ErrorAction SilentlyContinue)" }
     $shots = @(Get-ChildItem $smokeOut -Filter *.png)
-    if ($shots.Count -ne 9) { throw "UI smoke produced $($shots.Count) of 9 screenshots" }
+    if ($shots.Count -ne 17) { throw "UI smoke produced $($shots.Count) of 17 screenshots" }
 } finally { Remove-Item Env:CUTROOM_DATA }
 Write-Output 'Cutroom check passed.'

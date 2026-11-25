@@ -37,7 +37,7 @@ This plan says how to build what [SCOPE.md](SCOPE.md) defines. Phases are a buil
 
 - **Implementation notes (as built).** These refine the decisions above:
   - **Text and shapes.** Rasterized with WPF (`FormattedText`, geometry) into textures that the native compositor draws, instead of DirectWrite inside the engine. Preview and export still share the same pixels.
-  - **Video decode.** FFmpeg software decode with `sws_scale` to BGRA, plus a one-frame lookahead. Preview decodes proxies, and export decodes the originals.
+  - **Video decode.** FFmpeg software decode with `sws_scale` to BGRA, plus a one-frame lookahead. Preview decodes proxies, and export decodes the originals. Frames downscaled while decoding (1440p sources to 1080p) use Lanczos instead of the planned shader; same-size conversion stays bilinear.
   - **Export.** Composed frames are read back from the GPU and piped to `ffmpeg.exe` (`h264_amf`, with `h264_mf` as the fallback). The mixed audio is muxed in the same `ffmpeg.exe` call.
   - **Transcription.** whisper.cpp `b5454` with `ggml-large-v3-turbo`, on the GPU through Vulkan.
     - `scripts/build-whisper-vulkan.ps1` compiles the GPU build without the Vulkan SDK. Its inputs are pinned downloads: the whisper.cpp source, Vulkan-Headers and SPIRV-Headers 1.4.363, and conda-forge's shaderc/glslang/spirv-tools for `glslc`. `vulkan-1.lib` is generated from the driver's `vulkan-1.dll`.
@@ -47,13 +47,23 @@ This plan says how to build what [SCOPE.md](SCOPE.md) defines. Phases are a buil
     - It runs on the 6 performance cores: on the 13600K, using all 20 threads was about 4× slower.
     - Whisper gets 2 s of padded silence. Its timestamps drift on the last words when a recording stops right after speech.
   - **ONNX models** (Silero VAD and the wav2vec2 aligner) run on the CPU ONNX Runtime. DirectML crashed natively (0xC0000005), in a way that can't be caught from managed code. Confident forced alignments may move whisper's word edges by up to 1.5 s. Words the aligner can't place are fitted into the gap between their aligned neighbors, so a rough whisper time can't overlap the next word and pull a retake decision onto the wrong copy of a phrase.
+  - **Cleanup cache.** Besides the decoded, denoised and transcribed audio, the aligned words and the narration loudness are cached too. A rerun after a pacing change only replans, about 3 s for 15 minutes of narration instead of over 2 minutes.
   - **Denoise.** Uses the DeepFilterNet command-line tool (`deep-filter`, WAV to WAV) instead of an in-process ONNX model. RNNoise via FFmpeg `arnndn` remains the option and fallback.
+  - **Clean review.** Clean is a listen-first review: cuts apply as soon as cleanup runs, and the list is in recording order by default. An order toggle switches it to least-sure-first (by decision confidence) and is remembered in Settings. The planned `A` "accept all remaining" key was dropped, since cuts are already applied and there is nothing left to accept.
   - **Undo.** Each edit stores a JSON snapshot of the project, instead of separate `Do`/`Undo` command classes. Autosave checks every 5 s.
   - **UI.** The WPF views are built in code (`Theme.cs` holds the `Ui` helpers), with no XAML per view. One keyboard dispatcher in `MainWindow` maps the Settings shortcut table to commands and scopes each command to its stage.
   - **Tests.** One test project, `tests/Cutroom.Tests`, with categories:
     - `Models`: needs the speech models; run with `scripts/test-speech.ps1`. It includes the full end-to-end test.
     - `Live`: makes real Claude and Codex calls.
-    - Everything else runs in `scripts/check.ps1`. That script also runs `Cutroom.exe --smoke`, which renders all four stages at 1440p and 1080p window sizes, using throwaway data in `CUTROOM_DATA`.
+    - `Bench`: the performance budgets in section 6, run with `scripts/bench.ps1`. The script also times the editor opening a generated 90-minute project (`Cutroom.exe --bench-open`). Timeline frame rate and A/V drift are not measured automatically.
+    - Everything else runs in `scripts/check.ps1`. That script also runs `Cutroom.exe --smoke`, using throwaway data in `CUTROOM_DATA`.
+      - It renders all four stages at maximized 1440p and 1080p window sizes, at 100% and 150% scaling. 1080p at 150% has the same layout as 1440p at 200%.
+      - It fails if a button or input is squeezed, cut off or overlapping outside a scroll area.
+      - The minimum window is still 1920×1080 at 100%; the scaled sizes are checked for usability.
+    - **Golden images.** Engine tests compare rendered frames against golden PNGs in `tests/Cutroom.Tests/golden`. The tolerance is 8 per channel, with at most 0.5% of pixels off and a mean difference under 2. `CUTROOM_UPDATE_GOLDEN=1` rewrites them.
+    - **Cleanup evaluation.** `scripts/eval-cleanup.ps1` runs `Cutroom.exe --eval-cleanup` over `tests/corpus/<case>/` folders. Each folder holds `narration.*`, `script.txt`/`.docx`, `expected.txt` and an optional `marks.txt`.
+      - It aligns the kept words with `expected.txt` and reports substantive words removed, leftover retake words, retake recall and word accuracy.
+      - A synthetic TTS case runs in the `Models` tests.
 
 ## 2. Repository layout
 
