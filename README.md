@@ -2,6 +2,8 @@
 
 Keyboard-first Windows video editor for narration-led Overwatch YouTube videos. See [SCOPE.md](SCOPE.md) for what it does and [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for how it is built.
 
+The narration is the spine of every video. Cleanup compares the recording with the script, keeps the last good take, and lists every cut for review with the least certain first. AI only proposes: it drafts text and plans, and never places anything on the timeline.
+
 ## Install and run
 
 Requirements: Windows 11, the .NET 10 SDK and Visual Studio 2022 C++ Build Tools (only to build). The AI helpers need the Claude Code or Codex CLI installed and signed in. They run on your subscription and never use API keys.
@@ -56,3 +58,7 @@ scripts\bench.ps1          # performance budgets: project open, scrub, cleanup, 
 The report (`artifacts\eval-cleanup.md`) lists, per recording, substantive words wrongly removed (must be 0), retake recall (target 95%) and word accuracy (target 98%). It uses your Settings for the whisper model, noise removal and GPU.
 
 Golden images for the engine tests live in `tests\Cutroom.Tests\golden`. After an intended visual change, rerun the tests with `CUTROOM_UPDATE_GOLDEN=1`, check the new images and commit them.
+
+## Rights
+
+The source is published for viewing. All rights reserved; no license is granted to copy, modify, or redistribute it.
